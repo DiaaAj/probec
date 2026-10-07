@@ -1,0 +1,274 @@
+# Progress log
+
+## M0 — package the prototype (done, 2026-10-07, CPU only)
+- `src/probec`: code books, architecture specs and probe twins from real `config.json` files
+  (Llama, Mistral, Qwen2, Qwen3), the recall program, a sharded bf16 writer that rejects any value bf16
+  cannot hold exactly, config generation, oracle, certify, CPU checks, vLLM harness, CLI.
+- Tests: 19 pass in ~4 min on a laptop CPU (`python -m pytest`), covering:
+  - code books and RoPE frequencies (llama3 scaling matches transformers);
+  - twin configs for 8 real models (unsupported architectures are refused);
+  - end-to-end CPU exactness for Llama-class and Qwen3-class probes (QK-norm): 0 mismatches,
+    bit-identical layer states, and block-dup / cross-request / zero-block / wrong-layer faults all
+    detected and localized.
+- Code-book generation sped up from 75 s to 6.5 s (float32 BLAS for the ±1 dot products).
+
+## M1 — dense probe as a tool (in progress, 2026-10-07)
+- **GPU session 1** (RTX 3090, vLLM 0.31.0 / SGLang 0.5.21, real Qwen3-0.6B twin: Qwen3ForCausalLM with
+  QK-norm, 28 layers, vocab 151,936; ~$0.25):
+  - vLLM: 14 configurations (FLASH_ATTN, FLASHINFER, TRITON_ATTN, FLEX_ATTENTION × prefix caching +
+    CUDA graphs / chunked prefill + T=1 sampling / eager + preemption pressure; FlashInfer FP8 KV;
+    n-gram spec decode): **688,128 generated tokens, 0 mismatches**. Random KV-block corruption through
+    the real paged cache is flagged; a cache reset restores 0 mismatches.
+  - SGLang: flashinfer and triton backends × default / chunked + sampling / no radix + eager + memory
+    pressure / page 16, FlashInfer FP8 KV: **0 mismatches**.
+  - **SGLang NGRAM speculative decoding (flashinfer, 4 draft tokens): 1,793 mismatched tokens in 8 of 192
+    requests.** Greedy speculative decoding should be lossless; vLLM's n-gram run on the same probe was
+    exact. Under investigation (session 3).
+  - Unsupported on SM86 (not bugs): Triton FP8 KV on vLLM and SGLang (needs SM89+); SGLang flex_attention
+    (Inductor lowering error).
+  - Targeted localization failed on vLLM 0.31's fused K/V cache layout ([blocks, kv_heads, block, 2*hd]);
+    fixed.
+- **Positional probe** (`posrecall`): RoPE-only relative-offset reads at the real rope_theta. CPU (HF):
+  0 mismatches, bit-exact states in bf16; decode position slips and 5% RoPE frequency errors always
+  detected; single-block key-position skews ~60% detected (all localized) because read chains can
+  re-converge when selectors coincide.
+- **Scale check** (in `recall`): calibrated 4:1 two-marker lookup; on CPU it flags softmax-scale faults
+  ×0.5, ×0.75, ×1.44 (exp vs exp2), ×2, ×11.3 on every token, tolerates ×0.85–×1.3, works with QK-norm.
+
+## M2 — MoE (in progress)
+- `moe` program for Qwen3-MoE: exact routing (router logits ±16, weights exactly 1/k), pointer logic in
+  every expert, per-expert TAG flips and diagnostic tokens. CPU (HF Qwen3-MoE): 0 mismatches in fp32 and
+  bf16, bit-exact states; misroutes and duplicates detected and the expert named 100%; drops detected
+  100% (named ~50%); KV faults detected and localized.
+
+## M3 — MLA (in progress)
+- `mla` program for DeepSeek V2/V3 (MLA) and V3.2 (DSA sparse attention indexer). CPU (HF): 0
+  mismatches, bit-exact states, latent-cache faults detected and localized; with DSA top-k selection
+  active, a decode-time top-k set that loses the query token (the vLLM #58704 class) is detected.
+- **Scale check in `mla`** (last layer, head 1): marker bits travel in two latent dims; k = α(MA+1) +
+  β(MB+1) and v = (MA−MB)/2 come out of kv_b_proj, the query from a +1 fill dim of the q latent. CPU: exact
+  at ×1.0 and ×1.1, the error token on every step at ×0.5, ×1.44, ×1.87, ×2.
+  - DSA (V3.2): sparse attention only sees the indexer's top-k, so two indexer heads query ±code(marker A)
+    and marker B's code is −code(A): each marker scores 64 on its own head and any other key gains at
+    most |dot(code, A)| ≤ 24 (A is searched for that bound), so the target and both markers always make
+    the top-k set (index margin 16 on the real V3.2 config).
+
+### SGLang NGRAM mismatch — investigation (session 3, in progress)
+Same probe and workload as session 1 (192 requests × 256 tokens, flashinfer, 4 draft tokens), rerun per
+variant. The failure is deterministic: the baseline reproduces exactly (8 requests, 1,793 tokens).
+
+| Variant | Failed requests | Bad tokens |
+|---|---|---|
+| baseline (NGRAM, radix cache, overlap scheduler, CUDA graphs: SGLang defaults) | 8 | 1,793 |
+| no speculation | 0 | 0 |
+| NGRAM, radix cache disabled | 0 | 0 |
+| NGRAM, overlap scheduler disabled | 0 | 0 |
+| NGRAM, CUDA graphs disabled | 0 | 0 |
+| NGRAM, Triton backend | 8 | 1,793 |
+| NGRAM, 2 draft tokens | 1 | 228 |
+| NGRAM, workload without shared-prefix requests | 0 | 0 |
+| NGRAM, one request at a time (`max_running_requests=1`) | 0 | 0 |
+| NGRAM baseline on an H100 (session 6) | 6 | 1,385 |
+| no speculation on an H100 (session 6) | 0 | 0 |
+
+So the corruption needs NGRAM + radix cache + overlap scheduler + CUDA graphs together (all defaults
+except NGRAM itself). The first failing request does not share a prefix with any other request. On the
+H100 the first failure is the same request at the same step (request 15, generated token 151) as on the
+RTX 3090: deterministic across GPU generations.
+
+Conclusion so far: the corruption needs concurrent requests that share prefixes, NGRAM, the radix
+cache, the overlap scheduler and CUDA graphs together; it is not backend-specific.
+
+**Failure pattern (probe oracle).** The 8 wrong requests are two prefix families:
+- request 15 (no cache hit) goes wrong at generated token 151; requests 48 and 100 reuse its cached prefix
+  (1,470 tokens) and 54, 63, 67 reuse theirs — all wrong from their first generated token;
+- request 116 (5,267-token prompt, no cache hit) goes wrong at token 104; request 125 reuses its cached
+  prefix (5,266 tokens) and is wrong from its first token.
+Wrong tokens are not shifted or re-chained expected tokens (garbage pointers), i.e. corrupted KV reads.
+Interpretation: during NGRAM decoding with the overlap scheduler and CUDA graphs, a request's radix-cached
+KV gets overwritten; every request that later reuses that prefix inherits the corruption. This matches
+SGLang #23392 (closed without a fix; it needed cancellations) — here it reproduces deterministically
+without cancellations.
+
+**Real-model check (Qwen3-0.6B real weights, greedy):** NGRAM vs no-spec 17/96 requests diverge, but
+no-spec default vs no-spec deterministic already diverge in 21/96, so real-model comparisons cannot
+separate this bug from benign numerics. The probe's exact oracle can.
+
+Session 3 cost ~$0.10 (35 min at $0.18/h).
+
+## GPU session 2 (RTX 3090, ~$0.29) — every program on both engines
+- vLLM 0.31.0 (18 configurations, 557K generated tokens): recall with scale check (Qwen3-0.6B twin),
+  posrecall at rope_theta 1e6 (FLASH_ATTN / FLASHINFER × default / chunked 512 + sampling / eager +
+  preemption; FlashInfer FP8 KV; n-gram spec), MoE (Qwen3-30B-A3B twin, 4 layers, 128 experts top-8),
+  MLA (DeepSeek-V2-Lite twin × TRITON_MLA default / chunked + sampling / eager + preemption / n-gram;
+  DeepSeek-V3 twin): **0 mismatches**.
+- SGLang 0.5.21 (8 configurations, 262K tokens): recall-sc, posrecall, MoE, MLA on flashinfer and triton:
+  **0 mismatches**.
+
+## GPU session 4 (RTX 3090, ~$0.07) — replays and a new MLA observation
+- vLLM #42642 and #47728 replays (0.25.1 vs 0.26.0) did not trigger with the configured workloads
+  (shared-prefix suffixes too short; async scheduling not enabled) — retried in session 7.
+- **MLA probe, DeepSeek-V2-Lite twin, default workload with prefix caching (96 requests, max_model_len
+  4084): 7/96 requests wrong from their first token on both vLLM 0.25.1 and 0.26.0** (identical
+  requests; not shared-prefix variants). vLLM 0.31 is clean on its own matrix; session 7 reruns the
+  identical workload on 0.31 with config variants and bisects 0.27–0.30.
+- Localization diagnostics on vLLM 0.31: corruption lands (8/8) and reruns hit the cache; misses come
+  from duplicate physical copies of shared blocks (now all copies are corrupted).
+
+## GPU session 7 (RTX 3090) — localization and MLA isolation
+- **Targeted KV faults through vLLM 0.31's real paged cache: 40/40 detected, 40/40 localized** (block
+  duplication, zeroed block, cross-request block, wrong-layer read, one stale layer; 8 trials each). The
+  probe's self-describing cache maps physical blocks to request positions; every physical copy of the
+  victim is corrupted, and the first wrong token's reads name the corrupted block.
+- MLA (DeepSeek-V2-Lite twin) on vLLM 0.31 with the workload that failed on 0.25.1/0.26.0: exact, also with
+  prefix caching off, eager mode, small/large token budgets and chunked prefill off.
+- Positional probe v2 without the identical-token prefix fails on GPU (19/96 requests on vLLM 0.31,
+  RTX 3090; also on H100): a probe bug (reads before position 0 compound through the accumulator),
+  reproduced on CPU at full depth and fixed by the prefix; GPU re-validation pending.
+
+## GPU session 5 (2× RTX 3090, ~$0.12) — tensor and expert parallelism
+- vLLM 0.31: MoE twin (Qwen3-30B-A3B shape) with EP=2+TP=2, TP=2, EP=2+EPLB; dense recall + scale check
+  with TP=2: **0 mismatches** (98K tokens).
+- SGLang 0.5.21: MoE twin with EP=2 + EPLB (16 redundant experts), EP=2+TP=2, TP=2; dense TP=2: **0
+  mismatches**.
+- SGLang #32962 (EPLB replicas chosen differently per rank) did not trigger on 0.5.16 with these flags.
+
+## GPU session 6 (H100, ~$2.01) — Hopper kernels
+- vLLM 0.31 (CUDA 13, torch 2.13): recall + scale check on FA3 (default, chunked + sampling), FlashInfer
+  SM90, Triton, FlashInfer FP8 KV, **Triton FP8 KV (supported on Hopper)**, n-gram spec; MoE twin ×2;
+  MLA (DeepSeek-V3 twin) on FlashMLA (default, chunked + sampling, FP8 KV), FLASH_ATTN_MLA, TRITON_MLA;
+  DeepSeek-V3.2 DSA twin (FlashMLA sparse) with prefix caching and shared prefixes: **0 mismatches**.
+- vLLM #36616 replay (V3.2 sparse top-k padding; 0.23.0 vs 0.24.0, prompts up to 3,000 and 8,000): exact on
+  both; not triggered (the image lacked `deep_gemm`, so the indexer may not run the affected kernel).
+- SGLang 0.5.21: fa3 × {default, chunked + sampling, page 16}, MLA on flashmla and fa3, MoE on fa3: **0
+  mismatches**. NGRAM baseline: 6 requests wrong (see the NGRAM table above).
+- Positional probe v2 entries failed with the pre-fix probe (no identical-token prefix); re-run in session 10.
+
+## GPU session 7 (RTX 3090, ~$0.19) — MLA bisection and replays
+- **Release bisection of the MLA failure** (DeepSeek-V2-Lite twin, replay workload `default/prefix`, 96
+  requests, max_len 3,700): 0.25.1, 0.26.0 and 0.27.1 return the same 7 wrong requests (9, 18, 25, 44,
+  65, 71, 81; all wrong from their first generated token, 1,792 tokens); **0.28.0, 0.29.0, 0.30.0 and
+  0.31.0 are exact**. The 0.27.1 → 0.28.0 range (601 commits) contains three MLA cached-context changes:
+  #50613 "Per-request scheduling for MLA chunked context" (its PR reports DeepSeek-V2-Lite accuracy gains
+  with prefix caching), #51739 "Optimize long-context MLA cache gathers" and #51733 "Fix MLA prefill
+  workspace allocation size". Per-commit wheels pin it in session 9b.
+- **vLLM #42642 replayed** ("MLA prefill merge reads the suffix output with the prefix head stride"; fixed
+  in 0.26.0): the long-suffix shared-prefix workload (33 requests sharing a cached prefix, suffixes of
+  600–1,200 tokens) returns **9 wrong requests on 0.25.1 (2,304 tokens, all wrong from their first
+  token) and 0 on 0.26.0** — the bug's fix window exactly.
+- #47728 replay: async scheduling with the CPU n-gram drafter is rejected by 0.25.1/0.26.0 ("only
+  supported with ... NGram GPU"); retried with `ngram_gpu` and decoy prompts in session 9b.
+- Localization retest on 0.31: 40/40 detected and localized (see above); the positional probe entries
+  used the pre-fix probe.
+
+## GPU session 8 (RTX 3090, ~$0.04) — bad host
+- Every vLLM configuration hit CUDA out-of-memory on its first allocation: `nvidia-smi` showed 24,014 of
+  24,576 MiB in use with no process visible in the container. Aborted after 10 minutes;
+  `tools/vast_run.sh` now rejects hosts with more than 2 GB of GPU memory in use before the job starts.
+
+## CPU work after session 8
+- MLA scale check (above), including DSA.
+- **Decoy workload for speculative decoding.** Probe outputs rarely repeat, so n-gram drafters seldom
+  propose anything and drafts are almost never rejected. `decoy_variant` plants fragments of the
+  prompt's own expected output over filler runs: half continue correctly (accepted drafts), half
+  diverge (rejected drafts). Echo tokens are never read, so the oracle is unchanged (CPU: exact on recall
+  and MLA twins). New matrix entries: `*/ngram_spec_decoys` (vLLM, SGLang), `default/ngram_gpu_async_decoys`
+  (vLLM replay: GPU drafter + async scheduling).
+- The CPU fault campaign picks victim blocks the corrupted decode actually reads (a block nobody reads
+  cannot change the output); before, a random class-token block was sometimes never read in the window.
+- Tests: 52 pass.
+
+## GPU session 10 (H100, ~$0.99) — MLA scale check, DSA, positional probe v2
+- vLLM 0.31: MLA (DeepSeek-V3 twin) with the scale check on FlashMLA (default, chunked + sampling),
+  FLASH_ATTN_MLA, TRITON_MLA, FlashMLA + n-gram decoys; DeepSeek-V3.2 DSA twin with the scale check
+  (prefix caching; long-suffix shared prefixes); **positional probe v2 on FA3, FlashInfer, Triton, FA3
+  chunked + sampling: exact** (the identical-token prefix fix holds on GPU); recall + n-gram decoys: **0
+  mismatches**.
+- SGLang 0.5.21: MLA on flashmla and fa3, positional probe v2 on fa3 (default, chunked + sampling),
+  NGRAM with decoys (recall twin): **0 mismatches**.
+- **FlashMLA FP8 KV: the scale check fired on all 64 requests** (the main lookups stayed exact). Cause:
+  FlashMLA's FP8 path quantizes the absorbed query W_UKᵀq to FP8, and the first MLA construction carried
+  the calibrating difference (≈1.3) on top of a ≈500 shared term in the same latent dims, where 3
+  mantissa bits erase it. Fixed by giving the A-versus-B difference its own latent dim; a CPU simulation
+  (absorbed query and P in FP8, static and dynamic scales) gives CAL 0.620 in the 0.5–0.7 window; new
+  CPU tests round dense Q/K/V and the MLA absorbed query to FP8.
+
+## GPU session 11 (H100) — FP8 paths
+- vLLM 0.31: **FlashMLA FP8 KV with the fixed scale check: exact**; FlashMLA default and n-gram decoys
+  (2,608 drafts, 10,432 draft tokens, 7,597 accepted); DeepSeek-V3.2 with the FP8 sparse cache and with
+  prefix caching; **FA3 FP8 KV (query quantized too)** with recall + scale check; n-gram decoys on FA3
+  (4,204 drafts, 16,816 draft tokens, 11,798 accepted); positional probe v2 on FA3 FP8 and FlashInfer
+  FP8: **0 mismatches**.
+- SGLang 0.5.21 FlashMLA FP8 KV: out of memory allocating a 37 GiB workspace at mem_fraction_static 0.8
+  (not a correctness result; the matrix now uses 0.6 for that entry).
+
+## GPU session 9b (RTX 3090) — the MLA bug pinned to one commit
+- Per-commit wheels (`wheels.vllm.ai/<sha>`), same twin and workload as the release bisection:
+  **e7b8d5946 (the parent of #50613): the same 7 requests wrong; b38e111d3 = vLLM #50613 "[Attention][MLA]
+  Per-request scheduling for MLA chunked context": exact.** The MLA prefix-caching failure in 0.25.1 –
+  0.27.1 is fixed by #50613 (merged 2026-08-06, first released in 0.28.0).
+- #47728 replay (Mistral-7B-v0.1 twin, sliding window 4096): with the GPU n-gram drafter, async
+  scheduling and decoy prompts, 0.25.1 is exact. The bug corrupts the oldest blocks of the window after a
+  rejected draft; the probe keeps every read at least 512 tokens inside the window (engines may drop
+  tokens outside it), so those blocks only carry near-zero attention weight. A window-edge reader (a
+  positional head with an offset near the window size) would be needed.
+
+## GPU session 12 (RTX 3090) — is the MLA multi-chunk context path still wrong?
+#50613 avoids splitting a batch's cached context into lockstep chunks when it fits the prefill
+workspace, so the old failure might survive where chunking is still needed. Four workloads with more
+cached context per step (prompts up to 12K tokens, 65–128 requests, token budgets up to 65,536):
+
+| Workload | vLLM 0.31 | vLLM 0.27.1 (control) |
+|---|---|---|
+| prefix caching, 128 requests | 0 | 13 requests wrong (3,328 tokens) |
+| token budget 65,536, max 256 sequences | 0 | 2 requests wrong |
+| long-suffix shared prefix, 65 requests | 0 | 0 |
+| shared long prefix, token budget 65,536 | 0 | 0 |
+
+The workloads still trigger the old failure, and the current release is exact on all of them.
+
+## GPU session 9a (RTX 3090, ~$0.17) — positional probe v2, MLA scale check, decoys, repro script
+- vLLM 0.31: **positional probe v2 on 8 configurations** (FA2 default / chunked + sampling / eager +
+  preemption, FlashInfer default / chunked + sampling / FP8 KV, Triton, n-gram spec); recall + n-gram
+  decoys; MLA with the FP8-robust scale check on the DeepSeek-V2-Lite twin (TRITON_MLA default / chunked +
+  sampling / eager + preemption / n-gram decoys) and the V3 twin (default, chunked + sampling): **0
+  mismatches** (15 entries).
+- SGLang 0.5.21: positional probe v2 on flashinfer, triton, flashinfer chunked + sampling; NGRAM with
+  decoys; MLA V2-Lite twin on triton and flashinfer: **0 mismatches**. The V3 twin ran out of memory on
+  the 24 GB card.
+- `tools/repro_sglang_ngram.py` end to end on a fresh machine: "NGRAM vs no-spec: 8/192 requests differ;
+  NGRAM vs exact oracle: 8 wrong" — the maintainer-facing repro works.
+- Tooling lesson: editing `tools/vast_run.sh` in place while a session ran made bash (which reads scripts
+  incrementally) re-run part of it, so the job started a second time; the results were pulled by hand,
+  the duplicate entry dropped, and the runner now keeps its whole body in one function.
+
+## B200 attempts (session 13)
+Two Oregon B200 hosts parked the container as "stopped" and never started it (no GPU charge); the runner
+now gives up on stopped instances after 3 minutes. A third host (Virginia) started normally.
+
+## GPU session 13 (B200, ~$2.97) — first Blackwell coverage
+- vLLM 0.31 on SM100: recall + scale check on FLASH_ATTN and FLASHINFER (TRT-LLM-gen kernels), FlashInfer
+  FP8 KV, n-gram decoys (the same 4,204 drafts / 11,798 accepted tokens as on the H100: exact outputs make
+  drafting identical across correct engines); positional probe v2 on FlashInfer; MLA V3 + scale check on
+  CUTLASS_MLA (default and FP8 KV), FLASHINFER_MLA, TRITON_MLA; MLA prefix caching and split-marker prompts:
+  **0 mismatches**.
+- vLLM #52796 replay (FlashInfer / TRT-LLM-ragged MLA prefill return base-2 LSE that vLLM merged as a
+  natural log after a prefix hit): 0.28.0 and 0.29.0 both exact with split markers on the DeepSeek-V3
+  twin. Reason: 0.28.0 prefers the TRT-LLM ragged prefill only for MLA head dims 192/64/256 (GLM-5
+  style, the model in the original report); DeepSeek-V3 dims get FlashAttention prefill. Session 14
+  reruns it with a 192/64/256 twin and with the prefill backend forced.
+
+## GPU session 14 (B200, ~$2.04) — vLLM #52796 re-caught
+FlashInfer and TRT-LLM-ragged MLA prefill kernels return base-2 log-sum-exp values; vLLM 0.28.0 merged
+them as natural logs when combining cached-context and suffix attention after a prefix hit. The main
+lookups are immune (30+ nat margins); the scale check is not, once its two markers sit on opposite sides
+of the cached prefix (split-marker prompts). 64 requests per entry:
+
+| | 0.28.0 | 0.29.0 | 0.31.0 |
+|---|---|---|---|
+| GLM-style MLA head dims 192/64/256 (TRT-LLM ragged prefill by default) | 62 wrong | 0 | 0 |
+| DeepSeek-V3 twin, `mla_prefill_backend=TRTLLM_RAGGED` | 62 wrong | 0 | 0 |
+| DeepSeek-V3 twin, `mla_prefill_backend=FLASHINFER` | 59 wrong | 0 | 0 |
+
+Every wrong request emits the scale-check token at its first step ("softmax scale"); the base prompt
+(no prefix hit) is exact. vLLM's own log confirms the prefill backend in each run.

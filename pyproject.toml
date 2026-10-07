@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "probec"
+version = "0.1.0"
+description = "Compile exact known-answer probe checkpoints that test LLM inference engines bit-for-bit"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "safetensors>=0.4", "torch>=2.1"]
+
+[project.urls]
+Homepage = "https://github.com/DiaaAj/probec"
+Issues = "https://github.com/DiaaAj/probec/issues"
+
+[project.optional-dependencies]
+hf = ["transformers>=4.51", "huggingface_hub>=0.23"]
+vllm = ["vllm"]
+sglang = ["sglang"]
+dev = ["pytest>=7", "transformers>=4.51", "huggingface_hub>=0.23"]
+
+[project.scripts]
+probec = "probec.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--basetemp=.pytest_tmp"
