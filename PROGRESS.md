@@ -278,7 +278,7 @@ Every wrong request emits the scale-check token at its first step ("softmax scal
   `tools/README.md`; Apache-2.0; GitHub Actions CI (CPU tests on Python 3.11 and 3.12).
 - Clean-install check: the release snapshot installed into a fresh Python 3.10 venv (torch 2.14.1 CPU,
   transformers 5.19.0) passes all 57 tests in 77 s.
-- Totals: 207 GPU matrix entries, about 5.8M generated tokens, $12.68 of GPU credit; every mismatching
+- Totals: 207 GPU matrix entries, about 5.8M generated tokens, $13.08 of GPU credit; every mismatching
   entry is explained (`python tools/summarize_runs.py`).
 - Publishing: the `release` branch holds the snapshot as one commit authored with the GitHub noreply
   address (local `main` keeps the full history). Creating the public repository was blocked by the

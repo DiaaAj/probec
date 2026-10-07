@@ -3,8 +3,8 @@
 - Starting credit (2026-10-07): **$42.77**. Instances are destroyed right after use (`tools/vast_run.sh`
   enforces a hard time cap and rejects hosts whose GPU memory is already taken).
 - Balance checks: $38.90 after session 8 (spent $3.87; the per-session estimates below sum to $3.20, the
-  rest is disk and bandwidth charges); $36.19 after session 11 (spent $6.58); **$30.09 after session 14
-  (spent $12.68 in all; no instance left running).**
+  rest is disk and bandwidth charges); $36.19 after session 11 (spent $6.58); **$29.69 after all sessions
+  (spent $13.08 in all, trailing charges included; no instance left running).**
 
 | when (UTC) | instance | GPU | $/h | minutes | est. cost | purpose / result |
 |---|---|---|---|---|---|---|
