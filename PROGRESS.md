@@ -272,3 +272,17 @@ of the cached prefix (split-marker prompts). 64 requests per entry:
 
 Every wrong request emits the scale-check token at its first step ("softmax scale"); the base prompt
 (no prefix hit) is exact. vLLM's own log confirms the prefill backend in each run.
+
+## M4 — release (2026-10-07)
+- Docs: README (results, CI recipe), `docs/DESIGN.md`, `docs/RESULTS.md`, `docs/REPLAY_CANDIDATES.md`,
+  `tools/README.md`; Apache-2.0; GitHub Actions CI (CPU tests on Python 3.11 and 3.12).
+- Clean-install check: the release snapshot installed into a fresh Python 3.10 venv (torch 2.14.1 CPU,
+  transformers 5.19.0) passes all 57 tests in 77 s.
+- Totals: 207 GPU matrix entries, about 5.8M generated tokens, $12.68 of GPU credit; every mismatching
+  entry is explained (`python tools/summarize_runs.py`).
+- Publishing: the `release` branch holds the snapshot as one commit authored with the GitHub noreply
+  address (local `main` keeps the full history). Creating the public repository was blocked by the
+  session's permission policy, so it is left to the maintainer:
+  `gh repo create DiaaAj/probec --public --source . --remote origin && git push -u origin release:main`.
+- Left for the maintainer on purpose: filing the SGLang NGRAM issue and sharing the vLLM MLA note (drafts
+  in the untracked `notes/`), and a PyPI release (needs credentials).
