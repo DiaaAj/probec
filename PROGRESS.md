@@ -286,3 +286,15 @@ Every wrong request emits the scale-check token at its first step ("softmax scal
   `gh repo create DiaaAj/probec --public --source . --remote origin && git push -u origin release:main`.
 - Left for the maintainer on purpose: filing the SGLang NGRAM issue and sharing the vLLM MLA note (drafts
   in the untracked `notes/`), and a PyPI release (needs credentials).
+
+## GPU sessions 15 / 15b (RTX 3090, ~$0.15) — the SGLang NGRAM bug on SGLang main
+No SGLang release followed 0.5.21, so main was pinned at d0a098b (2026-10-12, 0.5.22.dev813).
+- 0.5.21 control on a third machine: 8/192 wrong — the same requests and steps as on 2026-10-07.
+- main: the first attempt could not build (the image has no Rust toolchain; main's radix tree is a Rust
+  crate, so building without the extensions would test different code). Built with Rust: **0/192 wrong**.
+- NGRAM's argument handling is unchanged on main (`_handle_ngram` differs only in a DP-attention check;
+  overlap is disabled only on CPU in both), so the overlap scheduler, radix cache and CUDA graphs were all
+  active. The change comes from main's reworked KV-cache / memory-pool code (Rust radix tree,
+  unified-memory pool for speculative decoding, radix lock refactors) — fixed there, or no longer
+  triggered by this workload; a bisection over main would tell which.
+- The issue draft now reads: affects the current release 0.5.21; appears fixed on main.
