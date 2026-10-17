@@ -3,8 +3,9 @@
 - Starting credit (2026-10-07): **$42.77**. Instances are destroyed right after use (`tools/vast_run.sh`
   enforces a hard time cap and rejects hosts whose GPU memory is already taken).
 - Balance checks: $38.90 after session 8 (spent $3.87; the per-session estimates below sum to $3.20, the
-  rest is disk and bandwidth charges); $36.19 after session 11 (spent $6.58); **$29.69 after all sessions
-  (spent $13.08 in all, trailing charges included; no instance left running).**
+  rest is disk and bandwidth charges); $36.19 after session 11 (spent $6.58); $29.69 after the M1–M4
+  sessions (spent $13.08, trailing charges included); $29.46 before session 16 (sessions 15/15b: $0.23);
+  **$29.27 after session 16 (spent $13.50 in all; no instance left running).**
 
 | when (UTC) | instance | GPU | $/h | minutes | est. cost | purpose / result |
 |---|---|---|---|---|---|---|
@@ -30,3 +31,5 @@
 | 2026-10-07T07:37Z | 54605058 | B200 (US-VA) | 7.51 | 16 | ~2.04 | session 14: **vLLM #52796 re-caught** — split-marker prompts on 0.28.0: 62, 62, 59 of 64 requests wrong (GLM-style 192/64/256 twin with default TRT-LLM ragged prefill; V3 twin with TRT-LLM ragged / FlashInfer prefill forced), all diagnosed "softmax scale"; 0.29.0 and 0.31.0 exact on all three |
 | 2026-10-12T02:30Z | 55484879 | RTX 3090 (GB) | 0.30 | 11 | ~0.05 | session 15: SGLang main install failed (no Rust toolchain in the image; main's radix tree is a Rust crate); **0.5.21 control: 8/192 wrong, the same requests and steps as on 10-07, on a third machine** |
 | 2026-10-12T02:43Z | 55486136 | RTX 3090 (GB) | 0.30 | 21 | ~0.10 | session 15b: **SGLang main @ d0a098b (0.5.22.dev813, Rust extensions built): NGRAM repro 0/192 wrong** (0.5.21 on the same machine: 8/192); NGRAM configuration unchanged on main |
+| 2026-10-17T18:41Z | 56435041 | RTX 3090 (CZ) | 0.26 | 3 | ≈0 (stopped, never ran) | session 16 attempt 1: the host parked the container as stopped; destroyed after 3 min |
+| 2026-10-17T18:44Z | 56435467 | RTX 3090 (SE) | 0.27 | 47 | ~0.19 | session 16: **SGLang 0.5.22: NGRAM repro 0/192 wrong; 0.5.21 on the same machine: 8/192** (same requests and steps as before); default matrix on 0.5.22: flashinfer/triton × 4 configs exact (393K tokens), then flex_attention's Inductor error ended the run (SIGQUIT from the scheduler); 17 min of the 47 were the image pull |

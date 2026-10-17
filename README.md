@@ -15,8 +15,8 @@ one known token stream, bit for bit. There is no reference model and no toleranc
 It is a Tracr-style compiler (programs → transformer weights), built for exactness on production
 architectures instead of interpretability.
 
-> Status: v0.1.0. Validated on vLLM 0.31 and SGLang 0.5.21 on RTX 3090, H100 and B200 GPUs (about 5.8M
-> generated tokens checked). It caught four real engine bugs; see [`docs/RESULTS.md`](docs/RESULTS.md).
+> Status: v0.1.0. Validated on vLLM 0.31 and SGLang 0.5.21 on RTX 3090, H100 and B200 GPUs, plus SGLang
+> 0.5.22 on an RTX 3090 (about 6.2M generated tokens checked). It caught four real engine bugs; see [`docs/RESULTS.md`](docs/RESULTS.md).
 
 ## What it catches
 
@@ -38,7 +38,7 @@ basins that make it exact also hide them. See [`docs/DESIGN.md`](docs/DESIGN.md)
 ## Results so far
 Details and raw numbers: [`docs/RESULTS.md`](docs/RESULTS.md).
 
-- **Correct paths stay exact:** about 5.8M generated tokens across vLLM 0.31 and SGLang 0.5.21
+- **Correct paths stay exact:** about 6.2M generated tokens across vLLM 0.31 and SGLang 0.5.21 / 0.5.22
   configurations on RTX 3090, H100 and B200 (attention backends incl. FA3, FlashInfer, Triton, FlashMLA,
   sparse FlashMLA, CUTLASS-MLA; prefix caching, chunked prefill, preemption, CUDA graphs, FP8 KV, n-gram
   speculation, tensor and expert parallelism). Every token that went wrong traced to an engine bug
@@ -46,10 +46,12 @@ Details and raw numbers: [`docs/RESULTS.md`](docs/RESULTS.md).
 - **Faults are caught and located:** deliberately corrupted KV blocks in vLLM's real paged cache were
   caught 40/40 times, and the corrupted block was named 40/40 times.
 - **Real bugs:**
-  1. *SGLang 0.5.21, live:* NGRAM speculative decoding corrupts radix-cached KV when the overlap
+  1. *SGLang 0.5.21, unreported:* NGRAM speculative decoding corrupts radix-cached KV when the overlap
      scheduler and CUDA graphs are on and requests sharing prefixes run concurrently (8/192 requests;
-     deterministic, on RTX 3090 and H100). Every request that reuses the corrupted prefix inherits the
-     error. Real-model comparisons cannot isolate it; the probe's exact oracle does.
+     deterministic: the same requests fail at the same steps on three RTX 3090 hosts, and it also shows
+     on an H100). Every request that reuses the corrupted prefix inherits the error. Real-model
+     comparisons cannot isolate it; the probe's exact oracle does. Gone in 0.5.22 (0/192 on the same
+     machine and workload); the change that removed it is not identified yet.
   2. *vLLM 0.25.1–0.27.1, unreported:* MLA with prefix caching returns wrong outputs for 7/96 requests
      on a DeepSeek-V2-Lite twin, from their first token. Bisected with per-commit builds to the fix:
      #50613, merged as a prefill-scheduling optimization.

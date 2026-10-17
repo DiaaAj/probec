@@ -298,3 +298,21 @@ No SGLang release followed 0.5.21, so main was pinned at d0a098b (2026-10-12, 0.
   unified-memory pool for speculative decoding, radix lock refactors) — fixed there, or no longer
   triggered by this workload; a bisection over main would tell which.
 - The issue draft now reads: affects the current release 0.5.21; appears fixed on main.
+
+## GPU session 16 (RTX 3090, ~$0.19) — the SGLang NGRAM bug on 0.5.22
+SGLang 0.5.22 was released on 2026-10-16; its tag contains main @ d0a098b plus 139 newer commits.
+- 0.5.22 (pip wheels; torch 2.14.1, sglang-kernel 0.4.9, FlashInfer 0.7.1): **NGRAM repro 0/192 wrong**
+  (NGRAM vs no-spec 0/192).
+- 0.5.21 control on the same machine (a fourth host, in Sweden): 8/192 wrong, the same requests and first
+  divergent steps as on 2026-10-07 and 2026-10-12.
+- So the failure is gone in the current release. Whether 0.5.22 fixed it or only stopped this workload
+  from triggering it is still open; a bisection over main (v0.5.21 → d0a098b, about 813 commits) would
+  tell. Nobody else has reported it on SGLang's tracker.
+- Default SGLang matrix on 0.5.22: flashinfer and triton × {default, chunked 512 + sampling, no radix +
+  eager + memory pressure, page 16} exact (8 entries, 393K tokens). flex_attention then failed with an
+  Inductor lowering error (decode tile sizes do not divide the 128-token sparse blocks on SM86), and the
+  failing scheduler sent SIGQUIT to its parent, which ended the whole `probec run` process: the FP8 KV and
+  NGRAM entries were never reached. Harness fix needed: run each SGLang entry in its own process (the M1
+  job did this in shell with `--only`).
+- First attempt: a Czech host parked the container as stopped; destroyed after 3 minutes. The Swedish
+  host took 17 minutes to pull the image.

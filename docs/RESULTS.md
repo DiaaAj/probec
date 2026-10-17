@@ -1,4 +1,4 @@
-# Validation results (2026-10-07)
+# Validation results (2026-10-07, updated 2026-10-17)
 
 Probe twins run through unmodified engines; every generated token is compared with the oracle.
 "0 mismatches" means every generated token was exactly right. GPUs were rented on vast.ai (RTX 3090 =
@@ -6,10 +6,11 @@ SM86, H100 SXM = SM90, B200 = SM100). Raw results stay in `runs/*/out/*.jsonl` (
 tools/summarize_runs.py` reproduces the totals below, and `PROGRESS.md` has the session-by-session log.
 
 ## Summary
-- **207 matrix entries, about 5.8M generated tokens** on vLLM 0.31 and SGLang 0.5.21 across RTX 3090,
-  H100 and B200 GPUs (plus older vLLM releases and per-commit builds for replays and bisection).
+- **215 matrix entries, about 6.2M generated tokens** on vLLM 0.31 and SGLang 0.5.21 across RTX 3090,
+  H100 and B200 GPUs, plus SGLang 0.5.22 on an RTX 3090 (and older vLLM releases and per-commit builds
+  for replays and bisection).
 - Every entry with mismatches has a known cause:
-  - **engine bugs** — SGLang NGRAM speculative decoding (live), vLLM MLA prefix caching in 0.25.1–0.27.1
+  - **engine bugs** — SGLang NGRAM speculative decoding in 0.5.21 (gone in 0.5.22), vLLM MLA prefix caching in 0.25.1–0.27.1
     (fixed by #50613 in 0.28.0), vLLM #42642 in 0.25.1 (fixed in 0.26.0), vLLM #52796 in 0.28.0 on
     Blackwell (fixed in 0.29.0);
   - **probe bugs found and fixed during validation** — the positional probe before its identical-token
@@ -28,12 +29,14 @@ tools/summarize_runs.py` reproduces the totals below, and `PROGRESS.md` has the 
 | SGLang 0.5.21 | RTX 3090 | recall, recall + scale check, posrecall, MoE, MLA | flashinfer, triton × {default, chunked 512 + sampling, no radix + eager + memory pressure, page 16}; FlashInfer FP8 KV | 0 |
 | SGLang 0.5.21 | 2× RTX 3090 | MoE twin, dense recall | EP=2 + EPLB (16 redundant experts), EP=2 + TP=2, TP=2 | 0 |
 | SGLang 0.5.21 | H100 | recall + scale check, posrecall v2, MoE, MLA V3 | fa3 × {default, chunked + sampling, page 16}, MLA on flashmla and fa3, FA3 FP8 KV, n-gram with decoys | 0 (except the NGRAM workload, §3) |
+| SGLang 0.5.22 | RTX 3090 | recall | flashinfer, triton × {default, chunked 512 + sampling, no radix + eager + memory pressure, page 16}; the NGRAM workload of §3 | 0 |
 
 Decoy prompts make speculative decoding do real work: on FlashMLA, 2,608 n-gram drafts proposed 10,432
 tokens, 7,597 were accepted and the rest rejected, and every generated token was exact.
 
 Not supported or not run (engine limitations, reported as errors, not mismatches): Triton FP8 KV in vLLM
-and SGLang on SM86 (needs SM89+), Triton-MLA FP8 KV, SGLang flex_attention (Inductor lowering error),
+and SGLang on SM86 (needs SM89+), Triton-MLA FP8 KV, SGLang flex_attention (Inductor lowering error on
+0.5.21 and 0.5.22),
 SGLang FlashMLA FP8 KV on an H100 (out of memory allocating a 37 GiB workspace at the default memory
 fraction; the matrix now lowers it for that entry).
 
@@ -52,15 +55,21 @@ fraction; the matrix now lowers it for that entry).
   token detected.
 
 ## 3. Real bugs observed
-1. **SGLang 0.5.21, NGRAM speculative decoding (live).** Deterministic wrong greedy outputs: 8/192
-   requests (1,793 tokens) on an RTX 3090, 6 on an H100 — the first failure is the same request at the
-   same generated step on both. It needs NGRAM + radix cache + overlap scheduler + CUDA graphs (all
+1. **SGLang 0.5.21, NGRAM speculative decoding (gone in 0.5.22).** Deterministic wrong greedy outputs:
+   8/192 requests (1,793 tokens) on an RTX 3090, 6 on an H100 — the first failure is the same request at
+   the same generated step on both, and the same 8 requests fail at the same steps on three RTX 3090
+   hosts. It needs NGRAM + radix cache + overlap scheduler + CUDA graphs (all
    defaults except NGRAM) and concurrent requests that share prefixes; disabling any one of them, or
    running requests one at a time, makes it exact. Not backend-specific (flashinfer and triton). A
    request that owns a cached prefix goes wrong mid-generation and every request reusing that prefix
    is wrong from its first token, i.e. cached KV is overwritten. Likely the root cause of SGLang
    #23392 (closed without a fix). Real-model comparisons cannot isolate it (benign numeric divergence
-   is the same size); the probe's exact oracle can. A draft issue with a repro script is ready.
+   is the same size); the probe's exact oracle can. It does not reproduce on SGLang main @ d0a098b
+   (2026-10-12) or on 0.5.22 (2026-10-16), each run on the same machine and workload as an 8/192 control
+   of 0.5.21. NGRAM's configuration is unchanged, so the difference comes from the KV-cache and
+   memory-pool rework after 0.5.21. Whether that fixed the bug or only stopped this workload from
+   triggering it is not known yet; a bisection over main would tell. A draft issue with a repro script
+   is ready.
 2. **vLLM 0.25.1 – 0.27.1, MLA with prefix caching (fixed in 0.28.0).** On a DeepSeek-V2-Lite twin, the
    same 7 of 96 requests are wrong from their first generated token on 0.25.1, 0.26.0 and 0.27.1; 0.28.0,
    0.29.0, 0.30.0 and 0.31.0 are exact on the identical workload, as is 0.31.0 with prefix caching off,
