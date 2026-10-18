@@ -71,6 +71,8 @@ def matrix(name, kind="dense"):
                         "attention_config": {"mla_prefill_backend": "FLASHINFER"}}},
                 {"name": "default/fp8kv", "kw": {"gpu_memory_utilization": 0.85, "enable_prefix_caching": True,
                                                   "kv_cache_dtype": "fp8"}},
+                {"name": "default/fp8_online", "kw": {"gpu_memory_utilization": 0.85, "enable_prefix_caching": True,
+                                                       "quantization": "fp8"}},
                 {"name": "default/ngram_spec",
                  "kw": {"gpu_memory_utilization": 0.85, "enable_prefix_caching": True,
                         "speculative_config": {"method": "ngram", "num_speculative_tokens": 4,
