@@ -407,3 +407,39 @@ back bit for bit.
   on: the FP8 KV and NGRAM entries that session 16 never reached ran exact. **The harness fix works on a
   GPU.**
 - SGLang online FP8 (Marlin W8A16): 5 entries exact (245,760 tokens).
+
+### GPU session 20 (H100 PCIe, ~$3.53): quantized checkpoints on Hopper
+Twins (no scale check): Qwen3-0.6B, Qwen3-8B-shaped (4 layers), Qwen3-30B-A3B-shaped MoE (4 layers, 128
+experts), DeepSeek-V3 MLA (3 layers). `probec quantize` wrote FP8 per-tensor and 128×128-block, AWQ,
+GPTQ and NVFP4 copies; the MoE AWQ copy failed (an INT4 zero-point bug: groups without zeros, fixed). One
+entry per checkpoint and engine.
+- The reference model with NVFP4 and MXFP4 activations (the session 19 rerun): exact (0/1,536 each). So
+  the full twin is exact under all five activation schemes; the off-grid values of docs/QUANTIZED.md §1
+  never reach a meaningful token.
+- **vLLM 0.31, all exact:** online FP8 W8A8 (CUTLASS, per-token activations; 6 entries); probec's FP8,
+  FP8-block (FlashInfer + DeepGEMM, scales requantized to UE8M0), 8B FP8-block, MoE FP8-block (Triton
+  fused MoE), AWQ and GPTQ (Machete), 8B AWQ, NVFP4 (Marlin W4A16), DeepSeek-V3 MLA FP8-block on FlashMLA
+  and Triton MLA.
+- **SGLang 0.5.22:** exact on online FP8 (5 entries), FP8, FP8-block (DeepGEMM), MoE FP8-block, AWQ, GPTQ,
+  8B AWQ and MLA FP8-block. **NVFP4: 192/192 requests wrong from the first token** (49,133 of 49,152
+  tokens), the same count as on the RTX 3090 in session 21.
+
+### GPU session 21 (RTX 3090, ~$0.22): quantized checkpoints on Ampere (all Marlin)
+Dense Qwen3-0.6B and a 2-layer Qwen3-30B-A3B-shaped MoE twin; MoE AWQ (with the INT4 fix) and MoE NVFP4
+(per-expert calibration) are new. Certify: every format exact on both twins, except MXFP4 on the MoE twin
+(520/776: power-of-two scales cannot hold its 15/32 expert weights; no engine runs MXFP4 there).
+- **vLLM 0.31: all 10 checkpoints exact** (FP8, FP8-block, AWQ, GPTQ, NVFP4; dense and MoE; Marlin W8A16,
+  W4A16, Marlin MoE).
+- **SGLang 0.5.22:** exact on FP8, AWQ and GPTQ. **NVFP4, dense and MoE: every request wrong** (49,133 and
+  49,135 tokens). **FP8-block (dense) and AWQ (MoE): one request wrong each** (request 65, 245 tokens from
+  step 11 of a 5,876-token prompt; request 16, 111 tokens from step 145), while vLLM was exact on both;
+  session 23 investigates. MoE FP8 and FP8-block: Triton `fp8e4nv` is not supported on SM86 and SGLang has
+  no Marlin fallback for FP8 MoE (a crash, as the format research predicted); MoE GPTQ: `moe_wna16_marlin_gemm`
+  asserts fp16 scales with a bf16 model (a crash). Those crashes ran under `--only`, which still ran in
+  place: SGLang's SIGQUIT killed `probec run` before it wrote error records; `--only` is now isolated too.
+- **The NVFP4 failure is SGLang's copy of a bug vLLM fixed in #34577** ("Rescale NVFP4 weight scales to
+  fix BF16 dequant underflow", 2026-03): Marlin turns E4M3 block scales into an S0E5M3 form with
+  `(scale * 2**7).view(int16) << 1`, which assumes `scale * 2**7 >= 2`. probec's NVFP4 uses
+  `weight_scale_2 = 1` with exact power-of-two block scales as small as 2^-7, so they underflow. SGLang
+  0.5.22 and main (2026-10-18) still have the unfixed code; it is SGLang's NVFP4 path on every GPU below
+  Blackwell. `probec quantize --nvfp4-scales modelopt` writes ModelOpt-style scales as the control.

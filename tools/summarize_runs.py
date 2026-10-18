@@ -35,6 +35,11 @@ def cause(session, f, r):
     split = (cfg or "").startswith("default/split_markers")
     if prog == "mla" and split and r.get("engine_version") == "0.28.0":
         return "engine bug: vLLM #52796 (0.28.0, Blackwell MLA prefill LSE base)"
+    name = os.path.basename(f)
+    if r.get("engine") == "sglang" and "nvfp4" in name and "-mo" not in name and session in ("s20", "s21", "s23"):
+        return "engine bug: SGLang NVFP4 Marlin scale underflow (vLLM #34577 not ported; SM80-SM90)"
+    if r.get("engine") == "sglang" and session == "s21" and ("fp8-block" in name or "int4-awq" in name):
+        return "under investigation (session 23): SGLang 0.5.22, one request wrong mid-generation"
     return "UNEXPLAINED"
 
 

@@ -5,8 +5,8 @@
 - Balance checks: $38.90 after session 8 (spent $3.87; the per-session estimates below sum to $3.20, the
   rest is disk and bandwidth charges); $36.19 after session 11 (spent $6.58); $29.69 after the M1–M4
   sessions (spent $13.08, trailing charges included); $29.46 before session 16 (sessions 15/15b: $0.23);
-  $29.27 after session 16 (spent $13.50 in all); $28.25 after session 17 (spent $14.52 in all); **$27.95 after session 18
-  (spent $14.82 in all; no instance left running).**
+  $29.27 after session 16 (spent $13.50 in all); $28.25 after session 17 (spent $14.52 in all); $27.95 after session 18 (spent $14.82 in all);
+  $23.78 after sessions 19–21 (spent $18.99 in all); sessions 22 (B200) and 23 (RTX 3090) running.
 
 | when (UTC) | instance | GPU | $/h | minutes | est. cost | purpose / result |
 |---|---|---|---|---|---|---|
@@ -37,3 +37,6 @@
 | 2026-10-17T23:29Z | 56466166 | RTX 3090 (US-UT) | 0.263 | 3 | ≈0 (stopped, never ran) | session 17 attempt 1: the host parked the container as stopped; destroyed after 3 min |
 | 2026-10-17T23:32Z | 56466525 | RTX 3090 (CZ) | 0.324 | 151 | ~0.81 (+ disk) | session 17: **SGLang NGRAM bug bisected** over main bd78095 → d0a098b (813 commits; both ends, 10 steps and 2 re-tests, each built from source): first clean commit #42720, which drops the discarded trailing decode in overlap mode — likely hides the bug rather than fixing it |
 | 2026-10-18T04:17Z | 56496019 | RTX 3090 (CZ) | 0.324 | 30 | ~0.30 (with disk and bandwidth) | session 18: **SGLang NGRAM bug still in 0.5.22** — stop-token endings: 3/192 wrong on 0.5.22 and on 0.5.21 (same requests), 0 with overlap off; 0.5.22 with only #42720's skip switched off: 8/192 as on 0.5.21; length endings and forced retraction on 0.5.22: 0 |
+| 2026-10-18T05:30Z | 56504062 | RTX 3090 (ES) | 0.237 | 57 | ~0.22 | session 19 (M6): certify --quant all on the Qwen3 twin (196/196 in all six formats); the reference model exact under FP8 per-tensor/per-token/1×128 activations; vLLM and SGLang online FP8 (Marlin W8A16) exact (9 entries); SGLang default matrix with per-entry processes: 11 exact, flex_attention and Triton FP8 KV crashes recorded, FP8 KV and NGRAM entries reached |
+| 2026-10-18T06:11Z | 56508414 | H100 PCIe (CZ) | 2.588 | 82 | ~3.53 | session 20 (M6): FP8, FP8-block, AWQ, GPTQ, NVFP4 checkpoints of dense, 8B, MoE and MLA twins plus online FP8 W8A8: vLLM all exact (16 entries); SGLang exact except **NVFP4 (Marlin W4A16): 192/192 requests wrong**; the twin exact under NVFP4/MXFP4 fake-quantized activations |
+| 2026-10-18T06:28Z | 56510673 | RTX 3090 (US-CO) | 0.218 | 61 | ~0.22 | session 21 (M6, Marlin): vLLM all 10 checkpoints exact; SGLang: NVFP4 dense and MoE garbled (missing vLLM #34577), FP8-block dense and MoE AWQ one request wrong each (session 23), MoE FP8 / GPTQ crash on SM86 |
