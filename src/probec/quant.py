@@ -306,3 +306,33 @@ def check_quant(model_dir, act=None, weight=None, n_prompts=6, max_len=1200, n_n
             wrong += d > 0
     return {"act": act, "weight": weight, "prompts": len(prompts), "tokens": len(prompts) * n_new,
             "mismatches": bad, "requests_wrong": wrong}
+
+
+def calibrate_input_amax(model_dir, n_prompts=8, max_len=2000, device="cpu", seed=2):
+    """Largest |input| of every quantizable linear over the probe's own workload (prefill, HF transformers),
+    keyed by the linear's checkpoint weight name. Static activation scales (NVFP4 input_scale) come from
+    it, as ModelOpt's calibration would set them. The MoE router's input is recorded too: experts read the
+    same normalized hidden state."""
+    import numpy as np
+
+    from .check import load
+    from .harness import workload
+    from .oracle import Probe
+
+    probe = Probe(model_dir)
+    model = load(model_dir, "sdpa", torch.bfloat16).to(device)
+    amax, hooks = {}, []
+    for name, mod in model.named_modules():
+        key = name + ".weight"
+        if isinstance(mod, torch.nn.Linear) and (is_quantized_linear(key, mod.weight.shape) or key.endswith("mlp.gate.weight")):
+            def hook(m, inp, key=key):
+                amax[key] = max(amax.get(key, 0.0), float(inp[0].detach().abs().max()))
+            hooks.append(mod.register_forward_pre_hook(hook))
+    try:
+        with torch.no_grad():
+            for p in workload(probe, np.random.default_rng(seed), n_prompts, max_len):
+                model(torch.tensor([p], device=device))
+    finally:
+        for h in hooks:
+            h.remove()
+    return amax
