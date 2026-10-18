@@ -2,7 +2,8 @@
 # GPU session 22 (B200): quantized checkpoints on Blackwell (M6c and the SM100 paths of M6a/M6b): NVFP4 W4A4
 # (FlashInfer CuTe-DSL / CUTLASS dense, TRT-LLM FP4 MoE), FP8 (CUTLASS; 128x128 blocks through DeepGEMM with
 # UE8M0 scales; TRT-LLM block-FP8 MoE), AWQ (Marlin), online FP8, and DeepSeek-V3 MLA in FP8 blocks on the
-# Blackwell MLA kernels, on vLLM 0.31 and SGLang 0.5.22, every entry in its own process.
+# Blackwell MLA kernels, on vLLM 0.31 and SGLang 0.5.22, every entry in its own process. NVFP4 runs with
+# probec's unit global scale and with ModelOpt-style scales (W4A4 does not use the Marlin scale trick).
 # Environment: CREATED = the instance's creation time (epoch seconds) as the launcher saw it.
 set -u
 export PIP_ROOT_USER_ACTION=ignore HF_HUB_DISABLE_TELEMETRY=1
@@ -41,6 +42,9 @@ for spec in dense:fp8 dense:fp8-block dense:int4-awq dense:nvfp4 moe:fp8-block m
   t=${spec%%:*}; f=${spec#*:}
   $PY -m probec.cli quantize $P/$t --format $f --device cuda -o $P/$t-$f 2>&1 | grep -v -i warn | tail -1 | logp
 done
+# NVFP4 with ModelOpt-style scales (block scales near 448), next to probec's weight_scale_2 = 1
+$PY -m probec.cli quantize $P/dense --format nvfp4 --nvfp4-scales modelopt --device cuda -o $P/dense-nvfp4-mo 2>&1 \
+  | grep -v -i warn | tail -1 | logp
 
 run(){   # tag python engine probe matrix [only]
   local tag=$1 py=$2 eng=$3 probe=$4 m=$5 only=${6:-}
@@ -52,7 +56,7 @@ run(){   # tag python engine probe matrix [only]
 }
 log "vLLM 0.31"
 run v_online $PY vllm $P/dense quant
-for c in dense-fp8 dense-fp8-block dense-int4-awq dense-nvfp4 moe-fp8-block moe-nvfp4; do
+for c in dense-fp8 dense-fp8-block dense-int4-awq dense-nvfp4 dense-nvfp4-mo moe-fp8-block moe-nvfp4; do
   run v_$c $PY vllm $P/$c quick FLASH_ATTN/default
 done
 run v_mla-fp8-block_cutlass $PY vllm $P/mla-fp8-block blackwell CUTLASS_MLA/default
@@ -67,7 +71,7 @@ if [ $(left) -ge 25 ]; then
   $V/bin/pip install -q "sglang[all]==0.5.22" >> $O/install_0.5.22.log 2>&1 || log "install failed (see install_0.5.22.log)"
   log "  install took $(( $(date +%s) - t0 )) s"
   run s_online $V/bin/python sglang $P/dense quant
-  for c in dense-fp8 dense-fp8-block dense-int4-awq dense-nvfp4 moe-fp8-block moe-nvfp4; do
+  for c in dense-fp8 dense-fp8-block dense-int4-awq dense-nvfp4 dense-nvfp4-mo moe-fp8-block moe-nvfp4; do
     run s_$c $V/bin/python sglang $P/$c quick flashinfer/default
   done
   run s_mla-fp8-block $V/bin/python sglang $P/mla-fp8-block quick triton/default
