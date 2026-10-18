@@ -6,16 +6,18 @@ SM86, H100 SXM = SM90, B200 = SM100). Raw results stay in `runs/*/out/*.jsonl` (
 tools/summarize_runs.py` reproduces the totals below, and `PROGRESS.md` has the session-by-session log.
 
 ## Summary
-- **320 matrix entries, about 11.3M generated tokens** on vLLM 0.31 and SGLang 0.5.21 / 0.5.22 across RTX
+- **428 matrix entries, about 16.6M generated tokens** on vLLM 0.31 and SGLang 0.5.21 / 0.5.22 across RTX
   3090, H100 and B200 GPUs (and older vLLM releases and per-commit vLLM and SGLang builds for replays and
-  bisection), including quantized checkpoints in FP8, FP8 blocks, AWQ, GPTQ and NVFP4 (section 6).
+  bisection), including quantized checkpoints in FP8, FP8 blocks, AWQ, GPTQ and NVFP4 (section 6) and hybrid
+  Gated DeltaNet models (section 7). Every entry with a wrong token is classified by `tools/summarize_runs.py`.
 - Every entry with mismatches has a known cause:
   - **engine bugs** — SGLang NGRAM speculative decoding in 0.5.21 and 0.5.22 (since #42720 hidden for
     requests that end by length), vLLM MLA prefix caching in 0.25.1–0.27.1
     (fixed by #50613 in 0.28.0), vLLM #42642 in 0.25.1 (fixed in 0.26.0), vLLM #52796 in 0.28.0 on
-    Blackwell (fixed in 0.29.0), SGLang 0.5.22's NVFP4 Marlin path (vLLM #34577 not ported; section 6),
-    vLLM #44735 in 0.23.0 and #34577 in 0.18.1 (re-caught, section 6.2); two single-request SGLang failures
-    are under investigation (section 6.1);
+    Blackwell (fixed in 0.29.0), SGLang 0.5.22's NVFP4 Marlin path (vLLM #34577 not ported; sglang#44998),
+    SGLang's Marlin MoE (sglang#44999) and FP8 Marlin with the overlap scheduler (sglang#45000) on Ampere,
+    vLLM 0.31's n-gram speculation on hybrid models (vllm#62304; section 7.3), and vLLM #44735 in 0.23.0
+    and #34577 in 0.18.1 (re-caught, section 6.2). The SGLang NGRAM bug is sglang#44997;
   - **probe bugs found and fixed during validation** — the positional probe before its identical-token
     prefix, and the first MLA scale check under FP8 query quantization (section 5). Both were rerun on
     the same kernels after the fix and are exact.
@@ -58,7 +60,7 @@ fraction; the matrix now lowers it for that entry).
   token detected.
 
 ## 3. Real bugs observed
-1. **SGLang 0.5.21 and 0.5.22, NGRAM speculative decoding (unreported; hidden since #42720 for requests
+1. **SGLang 0.5.21 and 0.5.22, NGRAM speculative decoding (sglang#44997; hidden since #42720 for requests
    that end by length).** Deterministic wrong greedy outputs:
    8/192 requests (1,793 tokens) on an RTX 3090, 6 on an H100 — the first failure is the same request at
    the same generated step on both, and the same 8 requests fail at the same steps on three RTX 3090
@@ -225,7 +227,7 @@ tensor, per token and per 1×128 group, NVFP4 and MXFP4 (0 of 1,536 tokens wrong
 dense, MoE and MLA twins is exact in FP8, FP8 blocks, AWQ, GPTQ and NVFP4 (`probec certify --quant`).
 
 ### 6.1 What it found
-- **SGLang 0.5.22, NVFP4 through Marlin (all GPUs below Blackwell), unreported.** Every request is wrong from
+- **SGLang 0.5.22, NVFP4 through Marlin (all GPUs below Blackwell), sglang#44998.** Every request is wrong from
   its first token, dense and MoE, while vLLM is exact on the same checkpoints. Marlin turns E4M3 block scales
   into an S0E5M3 form with `(scale * 2**7).view(int16) << 1`, which assumes `scale * 2**7 >= 2`. probec's
   block scales go down to 2^-7, and in BF16 they underflow to zero. vLLM fixed the same code in #34577
@@ -234,7 +236,7 @@ dense, MoE and MLA twins is exact in FP8, FP8 blocks, AWQ, GPTQ and NVFP4 (`prob
   identical counts** on them: 49,133 (dense) and 49,135 (MoE) of 49,152 tokens wrong; 0.19.0 is exact
   (§6.2). Any NVFP4 checkpoint with small block scales hits it, for example one exported with a global scale
   of 1.
-- **SGLang 0.5.22, FP8 Marlin on the RTX 3090, with the overlap scheduler: nondeterministic, unreported.**
+- **SGLang 0.5.22, FP8 Marlin on the RTX 3090, with the overlap scheduler: nondeterministic (sglang#45000).**
   The dense FP8-block twin goes wrong in 5 of 7 runs (1–5 of 192 requests, on two hosts), from the first
   token or mid-decode, and in 0 of 5 runs with the overlap scheduler off. With the radix cache off it failed
   1 of 5 runs, with CUDA graphs off 1 of 3; the bf16 control 0 of 3. A failing request's lookups find nothing,
@@ -242,7 +244,8 @@ dense, MoE and MLA twins is exact in FP8, FP8 blocks, AWQ, GPTQ and NVFP4 (`prob
   isolation (`tools/marlin_determinism.py`: 10,330 sizes, repeats, two streams, a side stream as in overlap
   mode), and vLLM is exact on the same checkpoint. So the fault is in how the engine runs the path with the
   overlap scheduler; it is not located yet.
-- **SGLang 0.5.22, Marlin MoE (AWQ) on the RTX 3090: nondeterministic, unreported.** 1–18 of 192 requests go
+- **SGLang 0.5.22, Marlin MoE (AWQ) on the RTX 3090: nondeterministic (sglang#44999).** One request alone,
+  run 24 times, gave 3–6 different outputs (12 of 96 runs wrong); the Triton WNA16 kernel 0 of 32. 1–18 of 192 requests go
   wrong in 7 of 8 runs, often many at the same decode step, and also with one request at a time (11 wrong).
   The MoE program's diagnostic tokens name the experts whose outputs were wrong (64, 65, 70, 75 and 92 in one
   run). Turning off the radix cache, the overlap scheduler or CUDA graphs, or halving the KV pool, leaves it.
@@ -309,7 +312,7 @@ The exact entries, by engine:
 On the GPU box, the reference model was also exact on the full-depth twin: 0 mismatches, 276/276 states,
 residual drift 3.6·10⁻⁴, state and KV faults detected as in §7.1.
 
-### 7.3 vLLM 0.31: n-gram speculative decoding on hybrid models loses accepted tokens' state updates (unreported)
+### 7.3 vLLM 0.31: n-gram speculative decoding on hybrid models loses accepted tokens' state updates (vllm#62304)
 | vLLM 0.31, Qwen3.5-0.8B twin, n-gram k = 4, decoy prompts | wrong requests of 192 |
 |---|---|
 | prefix caching on (default) | 8 |

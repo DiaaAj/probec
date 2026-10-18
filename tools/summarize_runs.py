@@ -14,7 +14,7 @@ HARDWARE = {"m1-gpu1": "RTX 3090", "m2-gpu2": "RTX 3090", "s3-gpu3": "RTX 3090",
             "s9b2": "RTX 3090", "s10": "H100", "s11": "H100", "s12": "RTX 3090", "s13c": "B200",
             "s14": "B200", "s16": "RTX 3090", "s19": "RTX 3090", "s20": "H100 PCIe", "s21": "RTX 3090",
             "s22": "B200", "s23b": "RTX 3090", "s24": "RTX 3090", "s25": "RTX 3090", "s25b": "RTX 3090",
-            "s25c": "RTX 3090", "s26a": "RTX 3090", "s26b": "RTX 3090"}
+            "s25c": "RTX 3090", "s26a": "RTX 3090", "s26b": "RTX 3090", "s27b": "RTX 3090"}
 # probe-side causes, fixed during validation: the positional probe before the identical-token prefix
 # (sessions 6 and 7), the first MLA scale check under FP8 query quantization (session 10), and the first
 # hybrid program, whose GDN reads amplified prompt tokens' junk (sessions 25b, 25c; fixed with the null slot)
@@ -27,7 +27,7 @@ def cause(session, f, r):
     if (session, prog) in PROBE_BUGS or (session, prog, cfg) in PROBE_BUGS:
         return "probe bug (fixed)"
     if r.get("engine") == "sglang" and "ngram" in (cfg or ""):
-        return "engine bug: SGLang NGRAM + radix cache + overlap + CUDA graphs"
+        return "engine bug: SGLang NGRAM + radix cache + overlap + CUDA graphs (sgl-project/sglang#44997)"
     # records before engine_version existed: the release is known from the file (replay_<ver>, bisect)
     # or, in session 12, from the job log (only the 0.27.1 control failed)
     old = r.get("engine_version", "").startswith(("0.25", "0.26", "0.27"))
@@ -46,14 +46,17 @@ def cause(session, f, r):
         return "engine bug: vLLM #34577 (<= 0.18.1, NVFP4 Marlin scale underflow)"
     if r.get("engine") == "sglang" and "nvfp4" in name and "-mo" not in name and "modelopt" not in name \
             and session in ("s20", "s21", "s23b"):
-        return "engine bug: SGLang NVFP4 Marlin scale underflow (vLLM #34577 not ported; SM80-SM90)"
+        return "engine bug: SGLang NVFP4 Marlin scale underflow (vLLM #34577 not ported; sgl-project/sglang#44998)"
     sgl_ampere = r.get("engine") == "sglang" and session in ("s21", "s23b")
     if sgl_ampere and ("fp8-block" in name or "fp8block" in name):
-        return ("engine bug (under investigation): SGLang 0.5.22 FP8 Marlin on SM86, a few requests per run, "
-                "nondeterministic, needs the overlap scheduler")
+        return ("engine bug: SGLang 0.5.22 FP8 Marlin on SM86, a few requests per run, nondeterministic, needs the "
+                "overlap scheduler (sgl-project/sglang#45000)")
     if sgl_ampere and ("int4-awq" in name or "moeawq" in name):
-        return ("engine bug (under investigation): SGLang 0.5.22 Marlin MoE (AWQ) on SM86, wrong expert outputs "
-                "in some decode steps, nondeterministic")
+        return ("engine bug: SGLang 0.5.22 Marlin MoE (AWQ) on SM86, wrong expert outputs in some decode steps, "
+                "nondeterministic (sgl-project/sglang#44999)")
+    if r.get("engine") == "vllm" and prog == "hybrid" and "ngram" in (cfg or "") and session in ("s26a", "s27b"):
+        return ("engine bug: vLLM 0.31 n-gram speculation on hybrid GDN models loses accepted tokens' state "
+                "updates (vllm-project/vllm#62304)")
     return "UNEXPLAINED"
 
 
