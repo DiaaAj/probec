@@ -513,3 +513,19 @@ roll back, change later hops.
   caught); zeroed conv states not detected (v1 reads only the current conv tap, as documented).
 - 63 of 192 GDN hops in 64 decode steps read a slot last written by an echo; decoys keep the oracle.
 - `tests/test_hybrid.py`: 19 tests (both shapes at 8 layers, 2 of them attention layers).
+
+### GPU session 25 (RTX 3090 US, ~$0.08): CPU reference on the box, first vLLM entries, results lost
+- On the box (HF transformers 5.17, 72 CPUs): the full-depth Qwen3.5-0.8B twin (24 layers, 18 of them GDN) had
+  0 mismatches and 276/276 bit-identical layer states; state faults were 2/2 for zeroed, stale, cross-request,
+  wrong-layer and rejected drafts, and 0/2 for a zeroed conv state. The 4B twin (8 layers, two value heads per
+  key head) had 84/84, with drafts 1/2. All four twins certified (codes in unrotated dims included).
+- vLLM 0.31 with default settings (prefix caching on, which caches states in "align" mode; CUDA graphs) got
+  8, 17 and 10 of 192 requests wrong on FLASH_ATTN, FLASHINFER and TRITON_ATTN. Each failure starts mid-decode
+  (steps 2–61, never the first token). Two requests with the same expected output but prompts of different
+  lengths fail at the same step. After the first error the outputs converge to the sequence the probe gives
+  when GDN reads come back empty, as if a request ran on another request's state. Both shared-prefix workloads
+  were exact; there every request has the same pool, so a swapped state would not show.
+- After 30 minutes the host closed the ssh session that ran the job, the final pull failed, and the runner
+  destroyed the instance; only the entries above survived, through a monitor. The runner now runs jobs
+  detached and pulls results every 4 minutes. Sessions 25b (vLLM, with the `hybriddebug` matrix) and 25c
+  (SGLang) rerun everything.
