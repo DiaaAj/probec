@@ -114,7 +114,7 @@ def fault_campaign(model, probe, rng, n_trials, n_new, length):
     for _ in range(n_trials):
         pool = int(rng.integers(0, len(probe.pools)))
         p = probe.prompt(pool, length, rng)
-        q = probe.prompt((pool + 1) % len(probe.pools), length, rng)
+        q = probe.prompt((pool + 1) % len(probe.pools), len(p), rng)   # at least as long: blocks copy from it
         exp = probe.expected(p, n_new)
         tok0, cache = prefill(model, p)
         if tok0 != exp[0]:
