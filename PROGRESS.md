@@ -553,3 +553,21 @@ roll back, change later hops.
   all layers, and fails above 10⁻³. After the fix: 4.0·10⁻⁴ on the full-depth twin (4.2·10⁻⁴ on the 12-layer
   one, the same as the attention-only twins' junk), and the reference model is exact on requests that failed.
 - Sessions 26a (vLLM) and 26b (SGLang) rerun the hybrid matrices with the fixed twins.
+
+### Sessions 26a / 26b (RTX 3090, ~$0.53): the fixed hybrid twins on both engines
+- **SGLang 0.5.22:** all 14 entries of the hybrid matrix on the full-depth Qwen3.5-0.8B twin exact (688,128
+  tokens). That covers NGRAM with decoys (rollback of rejected drafts), memory pressure, a bf16 state, the radix
+  strategies, and the overlap scheduler, radix cache and CUDA graphs each off. The 4B, 27B, 35B-A3B MoE and
+  Qwen3-Next twins were exact too.
+- **vLLM 0.31:** 12 of 15 entries exact. The 3 n-gram entries were wrong in 8, 12 and 20 of 192 requests
+  (default; Triton verify kernel; prefix caching off). An oracle replay at each first wrong step explains every
+  failure by an accepted token's GDN write missing from the state, mostly the token accepted in the previous
+  step; none by a kept rejected draft. A new, unreported vLLM bug (`docs/RESULTS.md` §7.3); session 27 isolates
+  it. The other four twins were exact.
+- **Reference model on the box (full-depth twin):** exact; residual drift 3.6·10⁻⁴.
+  - State faults: 2/2 each for zeroed, stale, cross-request, wrong-layer and rejected drafts; 0/2 for a
+    zeroed conv state.
+  - KV faults: 2/2 each for block_dup, cross_request, zero_block and wrong_layer; 0/2 for stale_partial.
+- **SGLang Marlin MoE (AWQ), one request at a time** (`tools/sgl_repeat.py`): the same request run 24 times
+  gave 3–6 distinct outputs, 12 of 96 runs wrong. With the Triton WNA16 kernel, 0 of 32.
+- The detached runner worked on both boxes: output streamed, results pulled, exit status seen.

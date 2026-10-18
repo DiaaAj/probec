@@ -290,3 +290,36 @@ Recurrent-state faults injected into the reference model's cache after prefill (
 All of these were detected at the first decode step except the drafts. Random drafts are caught when the
 decode walk later reaches their class, and a draft on the next step's chain is always caught
 (`tests/test_hybrid.py`).
+
+### 7.2 Engines (sessions 26a and 26b, RTX 3090; session 25's runs were invalidated by the probe bug of §5)
+| twin | vLLM 0.31 | SGLang 0.5.22 |
+|---|---|---|
+| Qwen3.5-0.8B, 24 layers, `--matrix hybrid` | 12 of 15 entries exact; **the 3 n-gram entries wrong** (§7.3) | **14 of 14 exact** (688,128 tokens) |
+| Qwen3.5-4B (8 layers), 27B (4), 35B-A3B MoE (4), Qwen3-Coder-Next (4), default entry each | exact | exact |
+
+The exact entries, by engine:
+- **vLLM:** FLASH_ATTN, FLASHINFER and TRITON_ATTN; prefix caching (states cached in "align" mode) and
+  without it; shared-prefix workloads with short and long suffixes; chunked prefill with sampling; eager;
+  preemption; a bf16 SSM cache; the non-packed decode kernel; FP8 KV.
+- **SGLang:** FlashInfer and Triton; shared prefixes; chunked prefill with sampling; the radix cache, the
+  overlap scheduler (no_buffer strategy) and CUDA graphs each off; the extra_buffer_lazy radix strategy;
+  memory pressure; a bf16 SSM state; FP8 KV; **NGRAM speculative decoding with decoys, with and without the
+  overlap scheduler (57% and 78% of drafts accepted, so many rejected drafts were rolled back correctly)**.
+
+On the GPU box, the reference model was also exact on the full-depth twin: 0 mismatches, 276/276 states,
+residual drift 3.6·10⁻⁴, state and KV faults detected as in §7.1.
+
+### 7.3 vLLM 0.31: n-gram speculative decoding on hybrid models loses accepted tokens' state updates (unreported)
+| vLLM 0.31, Qwen3.5-0.8B twin, n-gram k = 4, decoy prompts | wrong requests of 192 |
+|---|---|
+| prefix caching on (default) | 8 |
+| `VLLM_GDN_DECODE_KERNEL=triton` | 12 |
+| prefix caching off | 20 |
+
+Greedy speculative decoding must not change outputs, the same engine is exact without it, and SGLang is
+exact with NGRAM on the same probe. Replaying the oracle at each failing request's first wrong step
+explains every failure the same way: the GDN state lacks the write of a token accepted earlier, in most
+cases the one accepted in the step just before. No failure is explained by a rejected draft's write being
+kept. Several requests are wrong for a single token and then continue correctly, which is what a single
+missing write does in the probe. Related, but different: #53912 (MTP + prefix caching on hybrids, rate tracking
+prefix-cache hits) and #61738 (≥ 7 speculative tokens). Session 27 isolates it further.
