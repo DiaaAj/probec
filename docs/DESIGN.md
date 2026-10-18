@@ -119,6 +119,7 @@ a chosen block to prove detection and localization.
 ## 5. What probec cannot see
 - numeric bugs that keep large-margin outcomes (accumulation order, slightly wrong scales) — the
   rounding basins hide them by design (the scale check covers gross softmax-scale faults);
-- quantized-weight numerics (FP8/NVFP4/INT4 weights are not part of v1);
+- quantized-weight numerics (FP8/NVFP4/INT4 weights are not part of v1; `docs/QUANTIZED.md` is the
+  design draft for adding them);
 - value-dependent kernel branches that probe values never trigger;
 - text-level bugs (tokenizer, chat template, parsers).
