@@ -60,15 +60,35 @@ CPU):
   products are exact in fp32, and the products have few significant bits (for example 28 × 448), so the
   sums stay exact even with Hopper's reduced-precision FP8 accumulators.
 
-## 3. Formats, engines and what probec must add
-| format | engines and kernels | probec adds | GPU |
+## 3. Formats, engines and what probec writes
+`probec quantize <twin> --format <fmt> -o <dir>` writes the checkpoint layouts vLLM 0.31 and SGLang 0.5.22
+load. They were read from both engines' loaders and kernels (2026-10-18), and the module docstring of
+`src/probec/quantize.py` has the tensor layouts. Kernels by GPU:
+
+| format (`--format`) | RTX 3090 (SM86) | H100 (SM90) | B200 (SM100) |
 |---|---|---|---|
-| FP8 weight-only (W8A16), online `quantization=fp8` on Ampere | vLLM FP8 Marlin | nothing: a matrix entry | RTX 3090 |
-| FP8 W8A8 per tensor / per token, online or from a checkpoint | vLLM and SGLang CUTLASS scaled-mm | matrix entries; channel pins if §4 step 1 needs them | H100, B200 |
-| FP8 block-wise 128 (DeepSeek V3 format, `weight_block_size`) | DeepGEMM, CUTLASS, Triton block GEMM; fused MoE | checkpoint writer (block scales, `weight_scale_inv`) | H100, B200 |
-| INT4 W4A16, AWQ and GPTQ, group 128 | Marlin (dense and MoE), Machete on Hopper | checkpoint writer (int32 packing, zeros, scales) | RTX 3090, H100 |
-| MXFP4 W4A16 (gpt-oss style MoE) | Triton / Marlin MXFP4 MoE | checkpoint writer (E8M0 scales) and a gpt-oss-shaped MoE twin | H100, B200 |
-| NVFP4 W4A4 (ModelOpt format) | CUTLASS / FlashInfer FP4 GEMM and MoE | checkpoint writer (global and E4M3 block scales), homogeneous 16-groups, pins | B200 |
+| FP8 per tensor (`fp8`), online FP8 | Marlin W8A16 (both) | CUTLASS W8A8, dynamic per-token activations | CUTLASS (both) |
+| FP8 128×128 blocks (`fp8-block`) | Marlin W8A16 (both) | vLLM: FlashInfer + DeepGEMM, scales requantized to powers of two; SGLang: DeepGEMM | DeepGEMM |
+| FP8 MoE | vLLM Marlin; SGLang Triton (may not run) | Triton fused MoE | vLLM TRT-LLM / Triton; SGLang Triton |
+| AWQ / GPTQ (`int4-awq`, `int4-gptq`) | Marlin | vLLM Machete; SGLang Marlin | Marlin |
+| AWQ / GPTQ MoE | Marlin MoE | Marlin MoE | Marlin MoE |
+| NVFP4 (`nvfp4`, ModelOpt) | Marlin W4A16 | Marlin W4A16 | W4A4: FlashInfer CuTe-DSL / CUTLASS; TRT-LLM MoE |
+| MXFP4 | only gpt-oss MoE (no dense path in either engine) | | |
+
+What the writer has to get right, and what an engine bug in these places would look like:
+- **Shared scales across fused shards.** Engines fuse q/k/v and gate/up. vLLM requantizes per-tensor FP8
+  shards to their largest scale through fp16, and both engines take the largest NVFP4 global scale
+  without rescaling the block scales, which decodes the other shards wrongly. probec gives fused shards
+  one power-of-two FP8 scale and one NVFP4 global scale, and gives experts one activation scale per
+  layer.
+- **Routers stay bf16.** vLLM quantizes a Qwen3-MoE router unless an FP8 or ModelOpt ignore list names
+  it exactly; SGLang never quantizes it. probec lists `lm_head` and every `model.layers.N.mlp.gate`.
+- **Missing scales load silently.** vLLM's missing-weight check is off for quantized checkpoints: FP8 MoE
+  scales default to 1, and NVFP4 per-tensor scales are left uninitialised. A probe catches either
+  immediately. A real checkpoint would only drift.
+- **Scale direction.** Every stored scale is a decode multiplier, `weight_scale_inv` included.
+- **NVFP4's static `input_scale`** comes from a calibration pass over the probe's prompts (amax / (6·448)),
+  as ModelOpt's would.
 
 Kernel names are as of vLLM 0.31 and SGLang 0.5.22; each session confirms which kernel actually ran.
 The oracle does not change: dequantized weights equal the designed ones, and the designed activations
@@ -97,9 +117,8 @@ The online-FP8 matrices (`--matrix quant`) exist for both engines.
 5. Re-catch: look for fixed bugs in quantized paths of both engines (scale indexing, MoE expert scales,
    group size handling) to replay on pre-fix versions, as v1 did for its bugs.
 
-## 5. Decisions for you
-- Order: FP8 first (widest use, cheapest GPUs), then INT4, then FP4? Or MoE-first (most of the
-  quantized-kernel complexity is in fused MoE)?
-- Blackwell budget for NVFP4 (B200 at about $6–7.5/h; one session is about 40 minutes).
-- Whether to replay known quantized-path bugs (needs a search of both trackers, like
-  `docs/REPLAY_CANDIDATES.md` for v1).
+## 5. Decisions (2026-10-18)
+- Order: FP8, then INT4, then FP4 (agreed). MoE and MLA twins run in each step, not as a separate one.
+- MXFP4 is deferred: neither engine has a dense MXFP4 path, so it needs a gpt-oss-shaped twin
+  (attention sinks, alternating sliding windows, a clamped SwiGLU), which is a program of its own.
+- Known quantized-path bugs will be searched for and replayed once the formats run exact.
