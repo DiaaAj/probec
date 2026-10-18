@@ -6,14 +6,16 @@ SM86, H100 SXM = SM90, B200 = SM100). Raw results stay in `runs/*/out/*.jsonl` (
 tools/summarize_runs.py` reproduces the totals below, and `PROGRESS.md` has the session-by-session log.
 
 ## Summary
-- **215 matrix entries, about 6.2M generated tokens** on vLLM 0.31 and SGLang 0.5.21 across RTX 3090,
-  H100 and B200 GPUs, plus SGLang 0.5.22 on an RTX 3090 (and older vLLM releases and per-commit vLLM
-  and SGLang builds for replays and bisection).
+- **320 matrix entries, about 11.3M generated tokens** on vLLM 0.31 and SGLang 0.5.21 / 0.5.22 across RTX
+  3090, H100 and B200 GPUs (and older vLLM releases and per-commit vLLM and SGLang builds for replays and
+  bisection), including quantized checkpoints in FP8, FP8 blocks, AWQ, GPTQ and NVFP4 (section 6).
 - Every entry with mismatches has a known cause:
   - **engine bugs** — SGLang NGRAM speculative decoding in 0.5.21 and 0.5.22 (since #42720 hidden for
     requests that end by length), vLLM MLA prefix caching in 0.25.1–0.27.1
     (fixed by #50613 in 0.28.0), vLLM #42642 in 0.25.1 (fixed in 0.26.0), vLLM #52796 in 0.28.0 on
-    Blackwell (fixed in 0.29.0);
+    Blackwell (fixed in 0.29.0), SGLang 0.5.22's NVFP4 Marlin path (vLLM #34577 not ported; section 6),
+    vLLM #44735 in 0.23.0 and #34577 in 0.18.1 (re-caught, section 6.2); two single-request SGLang failures
+    are under investigation (section 6.1);
   - **probe bugs found and fixed during validation** — the positional probe before its identical-token
     prefix, and the first MLA scale check under FP8 query quantization (section 5). Both were rerun on
     the same kernels after the fix and are exact.
@@ -184,3 +186,53 @@ three then miss their stop tokens. `tools/gpu_job_s18_stoptoken.sh` is the scrip
    and the check fired on all 64 requests. The fix puts the A-versus-B difference in its own latent dim.
    After the fix: exact on FlashMLA FP8 KV and on the V3.2 FP8 sparse cache; CPU tests now round Q, K, V
    (dense) and the absorbed query (MLA) to FP8.
+
+## 6. Quantized weights (M6, 2026-10-18)
+`probec quantize` writes the checkpoints (`docs/QUANTIZED.md`), from twins compiled without the scale check;
+online FP8 is the `quant` matrix on the bf16 twin. Each cell is one entry of 192 requests × 256 tokens
+(several for online FP8). ✓ = every token exact.
+
+| twin and format | vLLM 0.31: RTX 3090 | H100 | B200 | SGLang 0.5.22: RTX 3090 | H100 | B200 |
+|---|---|---|---|---|---|---|
+| online FP8 (Marlin W8A16 on SM86, W8A8 above) | ✓ (4 entries) | ✓ (6) | ✓ (6) | ✓ (5) | ✓ (5) | ✓ (5) |
+| dense FP8 per tensor | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| dense FP8 128×128 blocks | ✓ | ✓ (also 8B-shaped) | ✓ | 1 request wrong (§6.1) | ✓ | ✓ |
+| MoE FP8 / FP8 blocks | ✓ / ✓ | — / ✓ | — / ✓ | crash: Triton FP8 MoE needs SM89 | — / ✓ | — / ✓ |
+| dense AWQ | ✓ | ✓ Machete (also 8B) | ✓ | ✓ | ✓ (also 8B) | ✓ |
+| MoE AWQ | ✓ | — | — | 1 request wrong (§6.1) | — | — |
+| dense / MoE GPTQ | ✓ / ✓ | ✓ Machete / — | — | ✓ / crash: needs fp16 scales | ✓ / — | — |
+| dense NVFP4, probec's scales (`weight_scale_2 = 1`) | ✓ (Marlin W4A16) | ✓ | ✓ (W4A4) | **192/192 wrong** | **192/192 wrong** | ✓ (W4A4) |
+| dense NVFP4, ModelOpt-style scales | (§6.1) | — | ✓ (W4A4) | (§6.1) | — | ✓ |
+| MoE NVFP4, probec's scales | ✓ | — | ✓ (TRT-LLM) | **192/192 wrong** | — | ✓ |
+| DeepSeek-V3 MLA, FP8 blocks | — | ✓ FlashMLA, Triton MLA | ✓ CUTLASS MLA, FlashInfer MLA | — | ✓ | crash: 256 GiB allocation |
+
+Before any GPU run, the reference model (HF transformers) was checked with fake-quantized linear inputs on the
+full 28-layer Qwen3-0.6B twin. It stayed exact under all five activation schemes engines use: FP8 per
+tensor, per token and per 1×128 group, NVFP4 and MXFP4 (0 of 1,536 tokens wrong each). Every weight of the
+dense, MoE and MLA twins is exact in FP8, FP8 blocks, AWQ, GPTQ and NVFP4 (`probec certify --quant`).
+
+### 6.1 What it found
+- **SGLang 0.5.22, NVFP4 through Marlin (all GPUs below Blackwell), unreported.** Every request is wrong from
+  its first token, dense and MoE, while vLLM is exact on the same checkpoints. Marlin turns E4M3 block scales
+  into an S0E5M3 form with `(scale * 2**7).view(int16) << 1`, which assumes `scale * 2**7 >= 2`. probec's
+  block scales go down to 2^-7, and in BF16 they underflow to zero. vLLM fixed the same code in #34577
+  (2026-03); SGLang 0.5.22 and main (2026-10-18) still have it. On the B200, SGLang runs NVFP4 as W4A4
+  without Marlin and is exact on the same checkpoints. **vLLM 0.18.1, the release before #34577, gives
+  identical counts** on them: 49,133 (dense) and 49,135 (MoE) of 49,152 tokens wrong; 0.19.0 is exact
+  (§6.2). Any NVFP4 checkpoint with small block scales hits it, for example one exported with a global scale
+  of 1.
+- **SGLang 0.5.22 on the RTX 3090: one request wrong** with the dense FP8-block twin (request 65, from step
+  11 of a 5,876-token prompt) and with the MoE AWQ twin (request 16, from step 145); vLLM was exact on both.
+  Session 23b reruns them on another host with the radix cache, the overlap scheduler and CUDA graphs
+  switched off one at a time.
+- Crashes, not wrong outputs: SGLang's FP8 MoE on SM86 (Triton `fp8e4nv` needs SM89 and there is no Marlin
+  fallback), GPTQ MoE with a bf16 model (`moe_wna16_marlin_gemm` asserts fp16 scales), and MLA FP8 blocks on
+  the B200 with the Triton backend (a 256 GiB allocation).
+
+### 6.2 Quantized-path bugs re-caught (vLLM, RTX 3090)
+| Fix | Twin | last buggy release | fix release |
+|---|---|---|---|
+| #44735: FP8 Marlin skips the weight transpose of square layers | Qwen3-8B-shaped (o_proj 4096 × 4096), FP8 checkpoint and online FP8 | 0.23.0: 192/192 wrong | 0.24.0: exact |
+| (control) | Qwen3-0.6B-shaped, no square layer | 0.23.0: exact | 0.24.0: exact |
+| #34577: NVFP4 Marlin scale underflow | probec's NVFP4, dense / MoE | 0.18.1: 49,133 / 49,135 tokens wrong | 0.19.0: exact |
+| (control) | ModelOpt-style scales | 0.18.1: exact | 0.19.0: exact |
