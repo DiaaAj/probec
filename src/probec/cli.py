@@ -19,7 +19,7 @@ def cmd_compile(a):
     meta = compile_probe(spec, a.out, program=a.program, classes=a.classes, fillers=a.fillers,
                          pools=a.pools, max_corr=a.max_corr, rope_theta=a.rope_theta, seed=a.seed, **extra)
     print(f"probec: wrote {a.out}: {spec.arch} L={spec.layers} hidden={spec.hidden} "
-          f"heads={spec.heads}/{spec.kv_heads} vocab={spec.vocab} program={a.program}")
+          f"heads={spec.heads}/{spec.kv_heads} vocab={spec.vocab} program={meta['program']}")
     print(f"probec: margins {json.dumps(meta.get('margins', {}))}  compile {meta['compile_sec']}s")
 
 
@@ -103,7 +103,8 @@ def main(argv=None):
                      "tiny-deepseek-v32, qwen3-0.6b-shape")
     c.add_argument("--layers", type=int, help="number of layers (default: the model's own)")
     c.add_argument("--vocab", type=int, help="vocab size override for built-in shapes")
-    c.add_argument("--program", default="recall", help="recall (default), posrecall, moe or mla")
+    c.add_argument("--program", default="recall",
+                   help="recall (default; hybrid for hybrid architectures), posrecall, moe, mla or hybrid")
     c.add_argument("--classes", type=int)
     c.add_argument("--fillers", type=int)
     c.add_argument("--pools", help="comma-separated pool (cycle) sizes summing to --classes")

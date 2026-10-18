@@ -77,6 +77,10 @@ def certify(probe_dir, min_score_nats=20.0, min_logit_nats=20.0, max_rope_drift=
         pair_idx = sorted({d % (spec["head_dim"] // 2) for d in meta["slow_dims"]})
         drift = float(inv[pair_idx].max() * meta["max_context"])
         chk["rope_drift_rad"] = {"ok": drift <= max_rope_drift, "rad": drift, "context": meta["max_context"]}
+    if meta["program"] == "hybrid":                  # codes sit in dims RoPE does not rotate at all
+        rot = int(round(spec["head_dim"] * spec.get("partial_rotary", 1.0)))
+        chk["codes_unrotated"] = {"ok": min(meta["slow_dims"]) >= rot, "rotary_dims": rot,
+                                  "code_dims": [min(meta["slow_dims"]), max(meta["slow_dims"])]}
     # 5. optional: every quantized linear's weights survive the given formats exactly
     if quant:
         from .quant import certify_weights

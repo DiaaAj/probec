@@ -89,3 +89,38 @@ for t in dense-nvfp4 dense-nvfp4-mo; do
   (cd $EXP/probec && PYTHONPATH=src $PY -m probec.cli report $O/v_$t.jsonl 2>&1) | grep -E "^\| vllm|configurations" | sed "s/^/$t /" | logp
 done
 log "done ($(left) min left)"
+# --- appended to the running job on the box (session 23b): repeats, the KV-pool test, a kernel-level
+# --- Marlin check (tools/marlin_determinism.py) and MoE AWQ isolation; bash reads the script as it runs
+log "B2. repeats: how often does the dense FP8-block twin go wrong, and with which feature off does it stop?"
+for i in 3 4 5 6; do
+  variant b_fp8block_$i dense-fp8-block flashinfer/default "{$FI}"
+  variant b_fp8block_noradix_$i dense-fp8-block noradix "{$FI, \"disable_radix_cache\": true}"
+  variant b_fp8block_nooverlap_$i dense-fp8-block nooverlap "{$FI, \"disable_overlap_schedule\": true}"
+done
+log "B2b. is it the KV pool size? MoE AWQ with less KV memory, bf16 MoE with more (int32 offsets past 2^31?)"
+variant b_moeawq_mem05 moe-int4-awq mem05 "{$FI, \"mem_fraction_static\": 0.5}"
+variant b_moe_bf16_mem09 moe flashinfer/default "{$FI, \"mem_fraction_static\": 0.9}"
+variant b_moeawq_mem05_2 moe-int4-awq mem05 "{$FI, \"mem_fraction_static\": 0.5}"
+for i in 2 3; do
+  variant b_fp8block_nograph_$i dense-fp8-block nograph "{$FI, \"disable_cuda_graph\": true}"
+  variant b_bf16_control_$i dense flashinfer/default "{$FI}"
+done
+log "repeats done ($(left) min left)"
+log "B3. kernel level: SGLang's FP8 Marlin GEMM on the twin's FP8-block weights (repeats, exact product, two streams)"
+if [ $(left) -ge 8 ]; then
+  (cd $EXP/probec && timeout 900 $V/bin/python tools/marlin_determinism.py $P/dense-fp8-block --layers 0,27 2>&1) \
+    | grep -v -i -E "warn|it/s" > $O/b3_marlin.log
+  grep -E "^MARLIN|differ|Error|error" $O/b3_marlin.log | tail -30 | logp
+fi
+log "kernel check done ($(left) min left)"
+log "B4. MoE AWQ isolation: Triton WNA16 MoE kernel instead of Marlin; vLLM (its own Marlin MoE); no batching"
+variant b_moeawq_wna16 moe-int4-awq wna16 "{$FI, \"quantization\": \"moe_wna16\"}"
+variant b_moeawq_wna16_2 moe-int4-awq wna16 "{$FI, \"quantization\": \"moe_wna16\"}"
+for i in 1 2; do
+  [ $(left) -lt 10 ] && break
+  (cd $EXP/probec && PYTHONPATH=src timeout 900 $PY -m probec.cli run $P/moe-int4-awq --engine vllm --matrix quick \
+     --only FLASH_ATTN/default --out $O/v_moeawq_$i.jsonl 2>&1) | grep -v "it/s" > $O/v_moeawq_$i.log
+  (cd $EXP/probec && PYTHONPATH=src $PY -m probec.cli report $O/v_moeawq_$i.jsonl 2>&1) | grep -E "^\| vllm|configurations" | sed "s/^/v_moeawq_$i /" | logp
+done
+variant b_moeawq_maxrun1 moe-int4-awq maxrun1 "{$FI, \"max_running_requests\": 1}"
+log "isolation done ($(left) min left)"

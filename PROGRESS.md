@@ -472,3 +472,24 @@ instance was destroyed and the job reran as session 23b on the Czech host.
 Every run selected FP8 Marlin (`MarlinFP8ScaledMMLinearKernel`) or NVFP4 Marlin, as the bugs need. **The
 NVFP4 counts are identical to SGLang 0.5.22's on the same checkpoints** (49,133 dense, 49,135 MoE): SGLang's
 NVFP4 Marlin path behaves exactly like vLLM before #34577.
+
+## M7 — hybrid linear-attention models (from 2026-10-18)
+Design: `docs/HYBRID.md`. Targets Qwen3.5 (text models `Qwen3_5ForCausalLM`; both engines register them),
+whose Gated DeltaNet layers make up 3 of every 4. Each GDN layer is a hop of the recall chain: its recurrent
+state is a table with one slot per class (16 key heads × 128 key dims = 2,048 slots), filled by saturated
+detector banks. With β = 1 and no decay the delta rule overwrites slots exactly. Echo tokens write a skip
+value into their class's slot, so decode-time writes, and rejected draft tokens that an engine fails to
+roll back, change later hops.
+
+### CPU (HF transformers 5.19, torch fallbacks of the FLA and causal-conv kernels), 2026-10-18
+- Built-in shapes `tiny-qwen3.5` (Qwen3.5-0.8B widths) and `tiny-qwen3.5-gva` (two value heads per key head),
+  plus twins from the real 0.8B / 4B / 27B configs (the multimodal config's text model; vision tower and MTP
+  head dropped).
+- `probec check --quick` on the 4-layer twin: **0 mismatches** (eager and SDPA, fp32 and bf16, left-padded
+  batches, sampling), **36/36 layer states bit-identical**, chunked prefill and recurrent decode.
+- State faults: zeroed, stale (an earlier block boundary's state), cross-request and wrong-layer states
+  detected in every trial at the first decode step; three random rejected drafts left in the state detected
+  in 1 of 2 trials (only when the walk later passes their classes; a draft on the next step's chain is always
+  caught); zeroed conv states not detected (v1 reads only the current conv tap, as documented).
+- 63 of 192 GDN hops in 64 decode steps read a slot last written by an echo; decoys keep the oracle.
+- `tests/test_hybrid.py`: 19 tests (both shapes at 8 layers, 2 of them attention layers).

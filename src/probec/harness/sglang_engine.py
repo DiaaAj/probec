@@ -9,7 +9,40 @@ BACKENDS_DEFAULT = ["flashinfer", "triton", "flex_attention"]
 BACKENDS_HOPPER = ["fa3"]
 
 
+def hybrid_matrix(name):
+    """Hybrid twins (docs/HYBRID.md): the attention backend serves the full-attention layers; the GDN layers
+    run SGLang's linear-attention backend. Entries vary the radix cache (which caches recurrent states for
+    hybrid models), shared prefixes, the overlap scheduler, CUDA graphs, chunked prefill, memory pressure
+    and speculative decoding."""
+    fi = {"attention_backend": "flashinfer"}
+    plan = [{"name": "flashinfer/default", "kw": dict(fi)}]
+    if name == "quick":
+        return plan
+    # the radix cache is on by default for these models; with the overlap scheduler it keeps extra state
+    # buffers (strategy extra_buffer), without it no_buffer
+    plan += [{"name": "triton/default", "kw": {"attention_backend": "triton"}},
+             {"name": "flashinfer/shared_prefix", "workload": "shared", "kw": dict(fi)},
+             {"name": "flashinfer/shared_prefix_long_suffix", "workload": "shared_long", "kw": dict(fi)},
+             {"name": "flashinfer/chunk512_sample", "sample": True, "kw": dict(fi, chunked_prefill_size=512)},
+             {"name": "flashinfer/noradix", "kw": dict(fi, disable_radix_cache=True)},
+             {"name": "flashinfer/nooverlap_no_buffer", "workload": "shared", "kw": dict(fi, disable_overlap_schedule=True)},
+             {"name": "flashinfer/extra_buffer_lazy", "workload": "shared",
+              "kw": dict(fi, mamba_radix_cache_strategy="extra_buffer_lazy")},
+             {"name": "flashinfer/nograph", "kw": dict(fi, disable_cuda_graph=True)},
+             {"name": "flashinfer/pressure", "kw": dict(fi, max_total_tokens=60000, max_running_requests=48)},
+             {"name": "flashinfer/ssm_bf16", "kw": dict(fi, mamba_ssm_dtype="bfloat16")},
+             {"name": "flashinfer/fp8kv", "kw": dict(fi, kv_cache_dtype="fp8_e4m3")},
+             {"name": "flashinfer/ngram_spec_decoys", "workload": "decoys",
+              "kw": dict(fi, speculative_algorithm="NGRAM", speculative_num_draft_tokens=4)},
+             {"name": "flashinfer/ngram_spec_decoys_nooverlap", "workload": "decoys",
+              "kw": dict(fi, disable_overlap_schedule=True, speculative_algorithm="NGRAM",
+                         speculative_num_draft_tokens=4)}]
+    return plan
+
+
 def matrix(name, kind="dense"):
+    if kind == "hybrid":
+        return hybrid_matrix(name)
     if name == "quant":       # online FP8 on the bf16 twin; quantized checkpoints use the default matrices
         backends = ["flashinfer", "triton"] if kind == "dense" else ["triton", "flashinfer"]
         plan = []
@@ -100,6 +133,8 @@ def spec_stats(metas):
 
 
 def run_entry(entry, probe, a, rng, max_len):
+    import os
+    os.environ.update(entry.get("env", {}))       # each entry runs in its own process
     t0 = time.time()
     eng = _engine(a.probe, max_len, a.new_tokens, entry["kw"])
     t_init = time.time() - t0
@@ -120,6 +155,7 @@ def run_entry(entry, probe, a, rng, max_len):
     import sglang
     rec = {"config": entry["name"], "engine": "sglang", "engine_version": getattr(sglang, "__version__", "?"),
            "program": probe.program, "diagnoses": diag, "failures": details, "kwargs": {k: str(v) for k, v in entry["kw"].items()},
+           "env": entry.get("env", {}),
            "sample": bool(entry.get("sample")), "requests": len(prompts),
            "prompt_tokens": int(sum(map(len, prompts))), "gen_tokens": len(prompts) * a.new_tokens,
            "mismatched_tokens": bad_tok, "mismatched_requests": bad_req,

@@ -108,11 +108,17 @@ def fault_campaign(model, probe, rng, n_trials, n_new, length):
         read = {pos // BLK for s in range(1, n_new) for pos in probe.reads(p, exp, s)}
         cand = sorted(b for b in read if b < nblk) or \
             [b for b in range(nblk) if any(x < probe.C for x in p[b * BLK:(b + 1) * BLK])]
+        attn = [l for l, layer in enumerate(cache.layers) if hasattr(layer, "keys")]   # hybrids: KV layers only
         for kind in FAULTS:
+            if kind == "wrong_layer" and len(attn) < 2:
+                continue
             b = int(rng.choice(cand))
             sl = slice(b * BLK, (b + 1) * BLK)
             c = clone_cache(cache)
             for l, layer in enumerate(c.layers):
+                if l not in attn:
+                    continue
+                prev = attn[attn.index(l) - 1]
                 if kind == "block_dup":            # block table points at another block of the request
                     src = int(rng.choice([x for x in range(nblk) if x != b]))
                     layer.keys[:, :, sl] = cache.layers[l].keys[:, :, src * BLK:(src + 1) * BLK]
@@ -123,10 +129,10 @@ def fault_campaign(model, probe, rng, n_trials, n_new, length):
                 elif kind == "zero_block":         # freshly allocated, never-written block
                     layer.keys[:, :, sl] = 0
                     layer.values[:, :, sl] = 0
-                elif kind == "wrong_layer" and l > 0:   # layer-offset bug: read the previous layer's KV
-                    layer.keys[:, :, sl] = cache.layers[l - 1].keys[:, :, sl]
-                    layer.values[:, :, sl] = cache.layers[l - 1].values[:, :, sl]
-                elif kind == "stale_partial" and l == len(c.layers) // 2:   # one layer, one block
+                elif kind == "wrong_layer" and l != attn[0]:   # layer-offset bug: the previous layer's KV
+                    layer.keys[:, :, sl] = cache.layers[prev].keys[:, :, sl]
+                    layer.values[:, :, sl] = cache.layers[prev].values[:, :, sl]
+                elif kind == "stale_partial" and l == attn[len(attn) // 2]:   # one layer, one block
                     layer.keys[:, :, sl] = cache_q.layers[l].keys[:, :, sl]
                     layer.values[:, :, sl] = cache_q.layers[l].values[:, :, sl]
             got = decode(model, c, exp[0], n_new, len(p))
@@ -138,6 +144,68 @@ def fault_campaign(model, probe, rng, n_trials, n_new, length):
                 r["steps_to_detect"].append(diffs[0])
                 blocks_read = {pos // BLK for pos in probe.reads(p, exp, diffs[0])}
                 r["localized"] += int(b in blocks_read)
+    for r in res.values():
+        s = r.pop("steps_to_detect")
+        r["median_steps_to_detect"] = float(np.median(s)) if s else None
+    return res
+
+
+STATE_FAULTS = ["state_zero", "state_stale", "state_cross_request", "state_wrong_layer",
+                "drafts_not_rolled_back", "conv_zero"]
+
+
+@torch.no_grad()
+def state_fault_campaign(model, probe, rng, n_trials, n_new, length):
+    """Hybrid models: corrupt the linear-attention states after prefill the way engine bugs would, decode,
+    and count detections. state_stale is the state of an earlier block boundary (a prefix-cache restore
+    at the wrong boundary); drafts_not_rolled_back leaves three rejected draft tokens (echoes of random
+    pool classes) in the states while their KV is discarded; conv_zero zeroes the convolution states, which
+    the v1 probe does not read (expected undetected)."""
+    res = {k: {"trials": 0, "detected": 0, "steps_to_detect": []} for k in STATE_FAULTS}
+    for _ in range(n_trials):
+        pool = int(rng.integers(0, len(probe.pools)))
+        p = probe.prompt(pool, length, rng)
+        q = probe.prompt((pool + 1) % len(probe.pools), length, rng)
+        exp = probe.expected(p, n_new)
+        tok0, cache = prefill(model, p)
+        if tok0 != exp[0]:
+            raise AssertionError("clean prefill mismatch")
+        lin = [l for l, layer in enumerate(cache.layers) if hasattr(layer, "recurrent_states")]
+        attn = [l for l, layer in enumerate(cache.layers) if hasattr(layer, "keys")]
+        _, cache_q = prefill(model, q)
+        cut = int(rng.integers(len(p) // 4, 3 * len(p) // 4))
+        _, cache_cut = prefill(model, p[:cut])
+        for kind in STATE_FAULTS:
+            c = clone_cache(cache)
+            if kind == "drafts_not_rolled_back":
+                drafts = [probe.C + int(x) for x in rng.choice(probe.pools[pool], 3, replace=False)]
+                for i, d in enumerate(drafts):
+                    n_ctx = len(p) + i
+                    model(input_ids=torch.tensor([[d]]), past_key_values=c, use_cache=True,
+                          attention_mask=torch.ones((1, n_ctx + 1), dtype=torch.long),
+                          position_ids=torch.tensor([[n_ctx]]))
+                for l in attn:                     # the engine discards the drafts' KV ...
+                    c.layers[l].keys = c.layers[l].keys[:, :, :len(p)]
+                    c.layers[l].values = c.layers[l].values[:, :, :len(p)]
+            for j, l in enumerate(lin):            # ... but these faults hit the recurrent states
+                st = c.layers[l].recurrent_states[0]
+                if kind == "state_zero":
+                    st.zero_()
+                elif kind == "state_stale":
+                    st.copy_(cache_cut.layers[l].recurrent_states[0])
+                elif kind == "state_cross_request":
+                    st.copy_(cache_q.layers[l].recurrent_states[0])
+                elif kind == "state_wrong_layer":
+                    st.copy_(cache.layers[lin[j - 1]].recurrent_states[0])
+                elif kind == "conv_zero":
+                    c.layers[l].conv_states[0].zero_()
+            got = decode(model, c, exp[0], n_new, len(p))
+            r = res[kind]
+            r["trials"] += 1
+            diffs = [i for i, (g, e) in enumerate(zip(got, exp)) if g != e]
+            if diffs:
+                r["detected"] += 1
+                r["steps_to_detect"].append(diffs[0])
     for r in res.values():
         s = r.pop("steps_to_detect")
         r["median_steps_to_detect"] = float(np.median(s)) if s else None
@@ -355,6 +423,9 @@ def run_checks(model_dir, seed=1, quick=False, n_new=24, faults=10, fault_len=60
     if probe.program == "moe":
         report["routing_faults"] = routing_faults(model, probe, rng, faults, n_new, fault_len)
         log(json.dumps(report["routing_faults"]))
+    if probe.program == "hybrid":
+        report["state_faults"] = state_fault_campaign(model, probe, rng, faults, n_new, fault_len)
+        log(json.dumps(report["state_faults"]))
     log(json.dumps(report["faults"]))
     report["ok"] = (sum(z["mismatches"] for z in zfa) == 0
                     and all(b["non_bitwise"] == 0 and b["logits_ok"] for b in bw))

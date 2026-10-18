@@ -16,6 +16,13 @@ _SYNTH = {
     "qwen3_moe": {"architectures": ["Qwen3MoeForCausalLM"], "model_type": "qwen3_moe", "hidden_act": "silu",
                   "attention_bias": False, "use_sliding_window": False, "output_router_logits": False,
                   "router_aux_loss_coef": 0.001},
+    "qwen3_5": {"architectures": ["Qwen3_5ForCausalLM"], "model_type": "qwen3_5_text", "hidden_act": "silu",
+                "attention_bias": False, "attention_dropout": 0.0, "attn_output_gate": True,
+                "mamba_ssm_dtype": "float32", "mtp_num_hidden_layers": 0, "mlp_only_layers": []},
+    "qwen3_5_moe": {"architectures": ["Qwen3_5MoeForCausalLM"], "model_type": "qwen3_5_moe_text",
+                    "hidden_act": "silu", "attention_bias": False, "attention_dropout": 0.0,
+                    "attn_output_gate": True, "mamba_ssm_dtype": "float32", "mtp_num_hidden_layers": 0,
+                    "router_aux_loss_coef": 0.001, "output_router_logits": False},
 }
 
 
@@ -40,6 +47,16 @@ def make_config(spec, rope_theta):
             cfg.update(num_experts=spec.moe["experts"], num_experts_per_tok=spec.moe["top_k"],
                        moe_intermediate_size=spec.moe["inter"], norm_topk_prob=spec.moe["norm_topk"],
                        decoder_sparse_step=spec.moe["sparse_step"], mlp_only_layers=spec.moe["mlp_only"])
+            if "shared_inter" in spec.moe:
+                cfg["shared_expert_intermediate_size"] = spec.moe["shared_inter"]
+                cfg.pop("intermediate_size", None)
+        if spec.linear:
+            lin = spec.linear
+            every = next((i + 1 for i, t in enumerate(lin["layer_types"]) if t == "full_attention"), 4)
+            cfg.update(layer_types=list(lin["layer_types"]), full_attention_interval=every,
+                       linear_num_key_heads=lin["k_heads"], linear_num_value_heads=lin["v_heads"],
+                       linear_key_head_dim=lin["k_dim"], linear_value_head_dim=lin["v_dim"],
+                       linear_conv_kernel_dim=lin["conv"])
     old_layers = cfg.get("num_hidden_layers", spec.layers)
     for key, val in list(cfg.items()):    # per-layer lists (layer_types, ...) follow the new depth
         if key != "architectures" and isinstance(val, list) and len(val) == old_layers:
@@ -59,10 +76,23 @@ def make_config(spec, rope_theta):
         cfg.pop(key, None)
     # the content probe pins rope_theta (lookups must be position-invariant); scaling rules stay
     params = dict(spec.rope_scaling) if spec.rope_scaling else {"rope_type": "default"}
+    if spec.partial_rotary != 1.0 and not spec.base_config:
+        params["partial_rotary_factor"] = spec.partial_rotary
     params["rope_theta"] = rope_theta
     cfg["rope_theta"] = rope_theta
     cfg["rope_parameters"] = params
-    if spec.rope_scaling:
+    if spec.linear:           # transformers 5 configs: rope_parameters only (it carries partial / mrope rules)
+        cfg.pop("rope_scaling", None)
+        params["partial_rotary_factor"] = spec.partial_rotary
+        cfg["partial_rotary_factor"] = spec.partial_rotary    # SGLang reads it here (vLLM in rope_parameters)
+        # SGLang derives layer types from full_attention_interval alone: the pattern must be periodic
+        every = cfg.get("full_attention_interval")
+        types = cfg.get("layer_types") or []
+        want = ["full_attention" if every and (i + 1) % every == 0 else "linear_attention" for i in range(len(types))]
+        if types != want:
+            raise SystemExit(f"probec: layer_types is not periodic with full_attention_interval={every}; "
+                             "SGLang would build a different model")
+    elif spec.rope_scaling:
         cfg["rope_scaling"] = {k: v for k, v in params.items() if k != "rope_theta"}
     else:
         cfg.pop("rope_scaling", None)

@@ -96,6 +96,12 @@ quantize losslessly, so the expected token stream is the bf16 one. KV-cache quan
 covered by v1.
 
 ## 4. Plan
+**Done (2026-10-18), steps 1–5 except MXFP4:** sessions 19–24 ran every format below on vLLM 0.31 and
+SGLang 0.5.22 on an RTX 3090 (Marlin), an H100 and a B200; results in `docs/RESULTS.md` §6. vLLM was exact
+everywhere. SGLang garbles NVFP4 below Blackwell (vLLM #34577 not ported), and two of its Marlin paths on the
+RTX 3090 (FP8 blocks, MoE AWQ) go wrong for a few requests per run, nondeterministically (§6.1 there). The
+replays re-caught vLLM #44735 and #34577.
+
 Status (2026-10-18): step 1 is in `probec certify --quant` (weights) and `probec check --quant-act /
 --quant-weight` (`src/probec/quant.py`). On a 2-layer twin without the scale check, every weight is exact in
 all six formats and generation stays exact under all five activation schemes (FP8 per tensor, per token

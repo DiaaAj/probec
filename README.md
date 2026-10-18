@@ -15,8 +15,9 @@ one known token stream, bit for bit. There is no reference model and no toleranc
 It is a Tracr-style compiler (programs → transformer weights), built for exactness on production
 architectures instead of interpretability.
 
-> Status: v0.1.0. Validated on vLLM 0.31 and SGLang 0.5.21 on RTX 3090, H100 and B200 GPUs, plus SGLang
-> 0.5.22 on an RTX 3090 (about 6.2M generated tokens checked). It caught four real engine bugs; see [`docs/RESULTS.md`](docs/RESULTS.md).
+> Status: v0.1.0. Validated on vLLM 0.31 and SGLang 0.5.21 / 0.5.22 on RTX 3090, H100 and B200 GPUs (about
+> 11.3M generated tokens checked), including quantized checkpoints in FP8, FP8 blocks, AWQ, GPTQ and NVFP4.
+> It caught seven real engine bugs, three of them unreported; see [`docs/RESULTS.md`](docs/RESULTS.md).
 
 ## What it catches
 
@@ -38,11 +39,13 @@ basins that make it exact also hide them. See [`docs/DESIGN.md`](docs/DESIGN.md)
 ## Results so far
 Details and raw numbers: [`docs/RESULTS.md`](docs/RESULTS.md).
 
-- **Correct paths stay exact:** about 6.2M generated tokens across vLLM 0.31 and SGLang 0.5.21 / 0.5.22
+- **Correct paths stay exact:** about 11.3M generated tokens across vLLM 0.31 and SGLang 0.5.21 / 0.5.22
   configurations on RTX 3090, H100 and B200 (attention backends incl. FA3, FlashInfer, Triton, FlashMLA,
   sparse FlashMLA, CUTLASS-MLA; prefix caching, chunked prefill, preemption, CUDA graphs, FP8 KV, n-gram
-  speculation, tensor and expert parallelism). Every token that went wrong traced to an engine bug
-  (below) or to a probe bug that was found and fixed during validation.
+  speculation, tensor and expert parallelism; quantized weights through Marlin, CUTLASS, DeepGEMM,
+  Machete, FlashInfer FP4 and TRT-LLM MoE kernels). Every token that went wrong traced to an engine bug
+  (below) or to a probe bug that was found and fixed during validation, except two SGLang failures on
+  quantized checkpoints that are still under investigation (`docs/RESULTS.md` §6.1).
 - **Faults are caught and located:** deliberately corrupted KV blocks in vLLM's real paged cache were
   caught 40/40 times, and the corrupted block was named 40/40 times.
 - **Real bugs:**
@@ -62,6 +65,12 @@ Details and raw numbers: [`docs/RESULTS.md`](docs/RESULTS.md).
   4. *vLLM #52796, re-caught on Blackwell:* MLA prefill kernels returned base-2 log-sum-exp values that
      were merged as natural logs after a prefix hit. Prompts that put the scale check's two markers on
      opposite sides of the cached prefix break 59–62 of 64 requests on 0.28.0 and none on 0.29.0.
+  5. *SGLang 0.5.22, unreported:* NVFP4 checkpoints with small block scales come out garbled on every GPU
+     below Blackwell, from the first token of every request: the Marlin fallback's scale conversion
+     underflows. vLLM fixed the same code in #34577; SGLang does not have the fix yet.
+  6. *vLLM #44735 and #34577, re-caught:* FP8 Marlin skipping the weight transpose of square layers
+     (0.23.0: 192/192 requests wrong on a Qwen3-8B-shaped twin) and the NVFP4 Marlin scale underflow
+     (0.18.1: the same token counts as SGLang 0.5.22's).
 
 ## Quick start
 

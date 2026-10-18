@@ -15,9 +15,11 @@ BLACKWELL = {"dense": ["FLASH_ATTN", "FLASHINFER", "TRITON_ATTN"], "mla": ["CUTL
 
 
 def matrix(name, kind="dense"):
-    """Serving configurations. kind: dense (GQA attention) or mla."""
+    """Serving configurations. kind: dense (GQA attention), mla or hybrid (linear-attention layers)."""
     if name == "quant":
         return quant_matrix(kind)
+    if kind == "hybrid":
+        return hybrid_matrix(name)
     plan = []
     if name == "hopper":
         backends = HOPPER[kind]
@@ -115,6 +117,39 @@ def matrix(name, kind="dense"):
     return plan
 
 
+def hybrid_matrix(name):
+    """Hybrid twins (docs/HYBRID.md): the attention backend serves the full-attention layers, the GDN layers
+    always run vLLM's FLA kernels. Entries vary what touches the recurrent state: prefix caching (states
+    cached at block boundaries), shared prefixes, chunked prefill, preemption, speculative decoding
+    (rejected drafts must be rolled back) and the state's dtype."""
+    base = {"gpu_memory_utilization": 0.85}
+    fa = dict(base, attention_backend="FLASH_ATTN")
+    plan = [{"name": "FLASH_ATTN/default", "kw": dict(fa)}]
+    if name == "quick":
+        return plan
+    plan.append({"name": "FLASHINFER/default", "kw": dict(base, attention_backend="FLASHINFER")})
+    plan.append({"name": "TRITON_ATTN/default", "kw": dict(base, attention_backend="TRITON_ATTN")})
+    ngram = {"method": "ngram", "num_speculative_tokens": 4, "prompt_lookup_max": 4, "prompt_lookup_min": 2}
+    # prefix caching is on by default for hybrids (states cached at block boundaries, mamba_cache_mode align)
+    plan += [{"name": "FLASH_ATTN/shared_prefix", "workload": "shared", "kw": dict(fa)},
+             {"name": "FLASH_ATTN/shared_prefix_long_suffix", "workload": "shared_long", "kw": dict(fa)},
+             {"name": "FLASH_ATTN/no_prefix_cache", "kw": dict(fa, enable_prefix_caching=False)},
+             {"name": "FLASH_ATTN/chunk512_sample", "sample": True, "kw": dict(fa, max_num_batched_tokens=512)},
+             {"name": "FLASH_ATTN/eager", "kw": dict(fa, enforce_eager=True)},
+             # max_num_seqs must not exceed the number of state blocks when CUDA graphs are on
+             {"name": "FLASH_ATTN/preempt", "kw": dict(fa, max_num_seqs=32, kv_cache_memory_bytes=3 << 30)},
+             {"name": "FLASH_ATTN/ssm_cache_bf16", "kw": dict(fa, mamba_ssm_cache_dtype="bfloat16")},
+             {"name": "FLASH_ATTN/decode_gating_kernel", "env": {"VLLM_ENABLE_FLA_PACKED_RECURRENT_DECODE": "0"},
+              "kw": dict(fa)},
+             {"name": "FLASHINFER/fp8kv", "kw": dict(base, attention_backend="FLASHINFER", kv_cache_dtype="fp8")},
+             {"name": "FLASH_ATTN/ngram_spec_decoys", "workload": "decoys", "kw": dict(fa, speculative_config=ngram)},
+             {"name": "FLASH_ATTN/ngram_spec_decoys_triton_verify", "workload": "decoys",
+              "env": {"VLLM_GDN_DECODE_KERNEL": "triton"}, "kw": dict(fa, speculative_config=ngram)},
+             {"name": "FLASH_ATTN/ngram_spec_decoys_no_prefix_cache", "workload": "decoys",
+              "kw": dict(fa, enable_prefix_caching=False, speculative_config=ngram)}]
+    return plan
+
+
 def _llm(model, max_len, n_new, kw):
     os.environ.setdefault("VLLM_ALLOW_INSECURE_SERIALIZATION", "1")
     os.environ.setdefault("VLLM_ENABLE_V1_MULTIPROCESSING", "0")
@@ -208,6 +243,7 @@ def fault_runs(llm, probe, prompts, a):
 
 
 def run_entry(entry, probe, a, rng, max_len):
+    os.environ.update(entry.get("env", {}))       # each entry runs in its own process
     t0 = time.time()
     llm = _llm(a.probe, max_len, a.new_tokens, entry["kw"])
     t_init = time.time() - t0
@@ -221,7 +257,7 @@ def run_entry(entry, probe, a, rng, max_len):
     details = []
     bad_tok, bad_req, _ = score(probe, prompts, outs, a.new_tokens, diag, details)
     import vllm
-    rec = {"config": entry["name"], "engine": "vllm", "engine_version": vllm.__version__, "program": probe.program, "diagnoses": diag, "failures": details, "kwargs": {k: str(v) for k, v in entry["kw"].items()},
+    rec = {"config": entry["name"], "engine": "vllm", "engine_version": vllm.__version__, "program": probe.program, "diagnoses": diag, "failures": details, "kwargs": {k: str(v) for k, v in entry["kw"].items()}, "env": entry.get("env", {}),
            "sample": bool(entry.get("sample")), "requests": len(prompts),
            "prompt_tokens": int(sum(map(len, prompts))), "gen_tokens": len(prompts) * a.new_tokens,
            "mismatched_tokens": bad_tok, "mismatched_requests": bad_req,

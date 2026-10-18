@@ -7,7 +7,7 @@ import pytest
 
 from probec.arch import make_config
 from probec.codes import make_codes, rope_inv_freq, slow_dims
-from probec.spec import FAMILIES, from_config
+from probec.spec import FAMILIES, _text_only, from_config
 
 DATA = os.path.join(os.path.dirname(__file__), "data")
 
@@ -43,7 +43,7 @@ def test_llama3_rope_matches_transformers():
 
 @pytest.mark.parametrize("path", sorted(glob.glob(os.path.join(DATA, "*.json"))))
 def test_twin_configs(path):
-    cfg = json.load(open(path))
+    cfg = _text_only(json.load(open(path)))      # a multimodal checkpoint's twin is its text model
     arch = cfg["architectures"][0]
     if arch not in FAMILIES:
         with pytest.raises(SystemExit):
@@ -65,3 +65,8 @@ def test_twin_configs(path):
         assert out["rope_scaling"]["rope_type"] == want
     if spec.mla:
         assert out["first_k_dense_replace"] == 4 and out["num_nextn_predict_layers"] == 0
+    if spec.linear:                               # hybrids keep their layer pattern and partial / mrope RoPE
+        assert out["layer_types"] == cfg["layer_types"][:4]
+        want = {k: v for k, v in cfg["rope_parameters"].items() if k != "rope_theta"}
+        assert {k: v for k, v in out["rope_parameters"].items() if k != "rope_theta"} == want
+        assert "rope_scaling" not in out

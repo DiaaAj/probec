@@ -214,7 +214,7 @@ def run_engine(a):
         from . import vllm_engine as eng
     else:
         from . import sglang_engine as eng
-    kind = "mla" if probe_kind(a.probe) == "mla" else "dense"
+    kind = {"mla": "mla", "hybrid": "hybrid"}.get(probe_kind(a.probe), "dense")
     plan = eng.matrix(a.matrix, kind)
     if a.list:
         print("\n".join(e["name"] for e in plan))

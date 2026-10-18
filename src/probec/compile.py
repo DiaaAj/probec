@@ -25,6 +25,9 @@ def max_context(spec):
 
 
 def compile_probe(spec, out, program="recall", **params):
+    if spec.linear and program == "recall":
+        print("probec: note: hybrid architecture: compiling the hybrid program (docs/HYBRID.md)")
+        program = "hybrid"
     if program not in PROGRAMS:
         raise SystemExit(f"probec: unknown program {program!r} (have: {', '.join(PROGRAMS)})")
     mod = PROGRAMS[program]

@@ -17,7 +17,8 @@ import numpy as np
 def Probe(model_dir):
     with open(os.path.join(model_dir, "probe_meta.json")) as f:
         meta = json.load(f)
-    cls = {"recall": RecallProbe, "posrecall": PosRecallProbe, "moe": MoeProbe, "mla": RecallProbe}[meta["program"]]
+    cls = {"recall": RecallProbe, "posrecall": PosRecallProbe, "moe": MoeProbe, "mla": RecallProbe,
+           "hybrid": HybridProbe}[meta["program"]]
     return cls(model_dir, meta)
 
 
@@ -263,3 +264,114 @@ class MoeProbe(RecallProbe):
         """Expert index if `token` is a diagnostic token, else None."""
         j = token - self.diag_base
         return j if 0 <= j < self.E else None
+
+
+class HybridProbe(RecallProbe):
+    """Hybrid recall (docs/HYBRID.md): attention hops go c -> nxt(c); a GDN hop from y reads y's state slot,
+    which holds the value of the latest token written to it: nxt(y) for the class token y, nxt(nxt(y)) for
+    an echo e(y). Echo tokens start their chain at their class. Fillers and markers write nothing."""
+
+    def __init__(self, model_dir, meta):
+        super().__init__(model_dir, meta)
+        self.types = meta["layer_types"]
+
+    def _writers(self, seq):
+        """Position of the latest write to each class's slot, and whether that write came from an echo."""
+        latest = {}
+        for i, t in enumerate(seq):
+            if t < 2 * self.C:
+                latest[t % self.C] = (i, t >= self.C)
+        return latest
+
+    def _walk(self, tok, latest):
+        """Classes the layers look up for the step that reads after `tok`, then the class it emits."""
+        y = tok if tok < self.C else tok - self.C
+        seq = [y]
+        for kind in self.types:
+            if kind == "full_attention":
+                y = int(self.nxt[y])
+            else:
+                if y not in latest:
+                    raise ValueError(f"class {y} was never written: not a valid hybrid prompt")
+                y = int(self.nxt[self.nxt[y]]) if latest[y][1] else int(self.nxt[y])
+            seq.append(y)
+        return seq
+
+    def expected(self, prompt, n):
+        latest = self._writers(prompt)
+        out, tok = [], prompt[-1]
+        for i in range(n):
+            y = self._walk(tok, latest)[-1]
+            tok = self.C + y
+            out.append(tok)
+            latest[y] = (len(prompt) + i, True)       # the echo writes y's slot when it is read next
+        return out
+
+    def chain(self, tok, latest=None):
+        return self._walk(tok, latest if latest is not None else {})[:-1]
+
+    def reads(self, prompt, generated, step):
+        """Prompt positions read at a step: per layer, the class token (attention) or the latest writer of
+        the slot (GDN, when that writer is in the prompt), plus the scale-check markers."""
+        ctx = list(prompt) + list(generated[:step])
+        latest = self._writers(ctx)
+        where = {t: i for i, t in enumerate(prompt) if t < self.C}
+        pos = []
+        for y, kind in zip(self._walk(ctx[-1], latest), self.types):
+            if kind == "full_attention":
+                if y in where:
+                    pos.append(where[y])
+            elif y in latest and latest[y][0] < len(prompt):
+                pos.append(latest[y][0])
+        markers = set((self.meta.get("scale_check") or {}).get("markers", []))
+        pos += [i for i, t in enumerate(prompt) if t in markers]
+        return sorted(set(pos))
+
+    def field_states(self, seq, pos):
+        lay = self.layout
+        chain = self._walk(seq[pos], self._writers(seq[:pos + 1]))
+        ones = np.ones(lay["code"], np.float32)
+        return {l: {lay["P"]: self.codes[chain[l + 1]].astype(np.float32), lay["R"]: ones}
+                for l in range(self.L - 1)}
+
+    def decoy_variant(self, prompt, rng, n_new, n_decoys=16, match=(2, 5), tail=4):
+        """Recall's decoys, planted only where every echo in a fragment comes before its class token: the
+        class token then overwrites the echo's slot write, so the expected output is unchanged."""
+        first = {t: i for i, t in enumerate(prompt) if t < self.C}
+        exp = self.expected(prompt, n_new)
+        out = list(prompt)
+        lo, hi = 2 * self.C, 2 * self.C + self.F
+        runs, i = [], 0
+        while i < len(out) - 1:
+            if lo <= out[i] < hi:
+                j = i
+                while j < len(out) - 1 and lo <= out[j] < hi:
+                    j += 1
+                runs.append((i, j))
+                i = j
+            else:
+                i += 1
+        for k in range(n_decoys):
+            m = int(rng.integers(*match))
+            if n_new < m + tail + 1:
+                break
+            j = int(rng.integers(m - 1, n_new - tail - 1))
+            frag = exp[j - m + 1:j + 1]
+            if k % 2:
+                frag += [self.C + int(c) for c in rng.integers(0, self.C, tail)]
+            else:
+                frag += exp[j + 1:j + 1 + tail]
+            limit = min([first[t - self.C] for t in frag if self.C <= t < 2 * self.C and t - self.C in first],
+                        default=len(out))
+            fits = [(a, min(b, limit)) for a, b in runs if min(b, limit) - a >= len(frag)]
+            if not fits:
+                continue
+            a, b = fits[int(rng.integers(0, len(fits)))]
+            st = int(rng.integers(a, b - len(frag) + 1))
+            out[st:st + len(frag)] = frag
+            for r in list(runs):
+                if r[0] <= st < r[1]:
+                    runs.remove(r)
+                    runs += [x for x in ((r[0], st), (st + len(frag), r[1])) if x[1] > x[0]]
+                    break
+        return out
