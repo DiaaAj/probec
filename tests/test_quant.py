@@ -144,3 +144,21 @@ def test_pack_nibbles_matches_the_awq_formula():
     want = [sum(int(q[r, AWQ_ORDER[j]]) << (4 * j) for j in range(8)) for r in range(2)]
     assert [int(x) & 0xFFFFFFFF for x in v[:, 0]] == want
     assert torch.equal(unpack_nibbles(v, 1, AWQ_ORDER), q)
+
+
+def test_moe_nvfp4_experts_share_activation_scales(tmp_path):
+    from safetensors import safe_open
+    from probec.quant import calibrate_input_amax
+    from probec.quantize import quantize_twin
+    src = str(tmp_path / "moe")
+    compile_probe(builtin("tiny-qwen3-moe", layers=1), src, program="moe", classes=512, pools="128,128,256",
+                  scale_check=False)
+    amax = calibrate_input_amax(src, n_prompts=2, max_len=300)
+    assert amax["model.layers.0.mlp.experts.0.down_proj.weight"] > amax["model.layers.0.mlp.experts.0.gate_proj.weight"]
+    rep = quantize_twin(src, str(tmp_path / "q"), "nvfp4", input_amax=amax, log=lambda *_: None)
+    assert not rep["inexact"]
+    with safe_open(str(tmp_path / "q" / "model.safetensors"), "pt") as f:
+        for proj in ("gate_proj", "up_proj", "down_proj"):
+            vals = {float(f.get_tensor(f"model.layers.0.mlp.experts.{e}.{proj}.input_scale")) for e in range(16)}
+            assert len(vals) == 1, proj
+        assert f.get_tensor("model.layers.0.mlp.gate.weight").dtype == torch.bfloat16     # the router stays bf16

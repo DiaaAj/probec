@@ -146,12 +146,17 @@ def quantize_twin(src, out, fmt, allow_inexact=False, input_amax=None, log=print
             scales = {g: _pow2_ceil(torch.tensor(a / E4M3_MAX)) if a > 0 else torch.tensor(1.0)
                       for g, a in group_amax.items()}
         else:
-            scales = group_amax
-            # experts share one activation scale per layer, as both engines collapse them to the max
-            for g in list(scales):
+            scales = dict(group_amax)
+            # experts share one activation scale per layer and kind (gate/up, down): both engines collapse
+            # the experts' input scales to their maximum
+            kind_max = {}
+            for g, a in group_amax.items():
                 if ".mlp.experts." in g:
-                    layer = g.split(".mlp.experts.")[0]
-                    scales[g] = max(v for k, v in group_amax.items() if k.startswith(layer + ".mlp.experts."))
+                    k = (g.split(".mlp.experts.")[0], g.rsplit(".", 1)[1])
+                    kind_max[k] = max(kind_max.get(k, 0.0), a)
+            for g in scales:
+                if ".mlp.experts." in g:
+                    scales[g] = kind_max[(g.split(".mlp.experts.")[0], g.rsplit(".", 1)[1])]
     else:
         for fn in shards:
             with safe_open(fn, framework="pt") as f:

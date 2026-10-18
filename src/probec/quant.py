@@ -322,12 +322,28 @@ def calibrate_input_amax(model_dir, n_prompts=8, max_len=2000, device="cpu", see
     probe = Probe(model_dir)
     model = load(model_dir, "sdpa", torch.bfloat16).to(device)
     amax, hooks = {}, []
+
+    def note(key, x):
+        if x.numel():
+            amax[key] = max(amax.get(key, 0.0), float(x.detach().abs().max()))
+
     for name, mod in model.named_modules():
         key = name + ".weight"
         if isinstance(mod, torch.nn.Linear) and (is_quantized_linear(key, mod.weight.shape) or key.endswith("mlp.gate.weight")):
-            def hook(m, inp, key=key):
-                amax[key] = max(amax.get(key, 0.0), float(inp[0].detach().abs().max()))
-            hooks.append(mod.register_forward_pre_hook(hook))
+            hooks.append(mod.register_forward_pre_hook(lambda m, inp, key=key: note(key, inp[0])))
+        elif hasattr(mod, "gate_up_proj") and hasattr(mod, "act_fn"):
+            # transformers' fused experts (3-D weights): recompute each selected expert's inputs
+            def experts_hook(m, args, name=name):
+                hs, idx = args[0], args[1]
+                for e in idx.unique().tolist():
+                    if e >= m.gate_up_proj.shape[0]:
+                        continue
+                    x = hs[(idx == e).any(-1)]
+                    gate, up = torch.nn.functional.linear(x, m.gate_up_proj[e]).chunk(2, dim=-1)
+                    for proj in ("gate_proj", "up_proj"):
+                        note(f"{name}.{e}.{proj}.weight", x)
+                    note(f"{name}.{e}.down_proj.weight", m.act_fn(gate) * up)
+            hooks.append(mod.register_forward_pre_hook(experts_hook))
     try:
         with torch.no_grad():
             for p in workload(probe, np.random.default_rng(seed), n_prompts, max_len):
