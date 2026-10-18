@@ -6,7 +6,7 @@
   rest is disk and bandwidth charges); $36.19 after session 11 (spent $6.58); $29.69 after the M1–M4
   sessions (spent $13.08, trailing charges included); $29.46 before session 16 (sessions 15/15b: $0.23);
   $29.27 after session 16 (spent $13.50 in all); $28.25 after session 17 (spent $14.52 in all); $27.95 after session 18 (spent $14.82 in all);
-  $23.78 after sessions 19–21 (spent $18.99 in all); sessions 22 (B200) and 23 (RTX 3090) running.
+  $23.78 after sessions 19–21 (spent $18.99 in all); about $16 after sessions 22–24 (session 23b running).
 
 | when (UTC) | instance | GPU | $/h | minutes | est. cost | purpose / result |
 |---|---|---|---|---|---|---|
@@ -40,3 +40,6 @@
 | 2026-10-18T05:30Z | 56504062 | RTX 3090 (ES) | 0.237 | 57 | ~0.22 | session 19 (M6): certify --quant all on the Qwen3 twin (196/196 in all six formats); the reference model exact under FP8 per-tensor/per-token/1×128 activations; vLLM and SGLang online FP8 (Marlin W8A16) exact (9 entries); SGLang default matrix with per-entry processes: 11 exact, flex_attention and Triton FP8 KV crashes recorded, FP8 KV and NGRAM entries reached |
 | 2026-10-18T06:11Z | 56508414 | H100 PCIe (CZ) | 2.588 | 82 | ~3.53 | session 20 (M6): FP8, FP8-block, AWQ, GPTQ, NVFP4 checkpoints of dense, 8B, MoE and MLA twins plus online FP8 W8A8: vLLM all exact (16 entries); SGLang exact except **NVFP4 (Marlin W4A16): 192/192 requests wrong**; the twin exact under NVFP4/MXFP4 fake-quantized activations |
 | 2026-10-18T06:28Z | 56510673 | RTX 3090 (US-CO) | 0.218 | 61 | ~0.22 | session 21 (M6, Marlin): vLLM all 10 checkpoints exact; SGLang: NVFP4 dense and MoE garbled (missing vLLM #34577), FP8-block dense and MoE AWQ one request wrong each (session 23), MoE FP8 / GPTQ crash on SM86 |
+| 2026-10-18T07:33Z | 56518118 | B200 (US-VA) | 7.051 | 60 | ~7.09 | session 22 (M6 on Blackwell): vLLM all 15 exact, NVFP4 W4A4 dense and MoE included; SGLang exact on everything but an MLA Triton OOM (256 GiB allocation), NVFP4 included (W4A4 path, not Marlin) |
+| 2026-10-18T07:30Z | 56517733 | RTX 3090 (US-OK) | 0.239 | 61 | ~0.15 | session 23: aborted — the host downloaded at ~680 KB/s and SGLang's install never finished |
+| 2026-10-18T08:01Z | 56521131 | RTX 3090 (EE) | 0.27 | 39 | ~0.18 | session 24: **vLLM #44735 and #34577 re-caught** on 0.23.0 / 0.18.1, exact on 0.24.0 / 0.19.0, with controls; the NVFP4 counts match SGLang 0.5.22's |

@@ -58,4 +58,8 @@ Open leads, not replays:
 - A possible unfixed copy of SGLang #35020 in SGLang's dense NVFP4 Marlin path (permuted bias added after
   the GEMM; found by reading code only).
 
-Replays of #44735 and #34577: GPU session 24.
+### Replay outcomes (GPU session 24, RTX 3090)
+| Fix | Outcome |
+|---|---|
+| vLLM #44735 | **re-caught.** Qwen3-8B-shaped twin (square 4096 × 4096 o_proj) through FP8 Marlin: 192/192 requests wrong from the first token on 0.23.0, with probec's FP8 checkpoint and with online `quantization="fp8"`; exact on 0.24.0. The Qwen3-0.6B-shaped twin (no square layer) is exact on both. |
+| vLLM #34577 | **re-caught.** probec's unit-scale NVFP4 (block scales down to 2^-7) through NVFP4 Marlin: 49,133 (dense) and 49,135 (MoE) of 49,152 tokens wrong on 0.18.1, exact on 0.19.0; ModelOpt-style scales exact on both. SGLang 0.5.22 gives the identical counts on the same checkpoints: it still has the pre-fix code. |

@@ -443,3 +443,32 @@ Dense Qwen3-0.6B and a 2-layer Qwen3-30B-A3B-shaped MoE twin; MoE AWQ (with the 
   `weight_scale_2 = 1` with exact power-of-two block scales as small as 2^-7, so they underflow. SGLang
   0.5.22 and main (2026-10-18) still have the unfixed code; it is SGLang's NVFP4 path on every GPU below
   Blackwell. `probec quantize --nvfp4-scales modelopt` writes ModelOpt-style scales as the control.
+
+### GPU session 22 (B200, ~$7.09): quantized checkpoints on Blackwell
+- **vLLM 0.31, all 15 entries exact:** online FP8 W8A8 (6); probec's FP8, FP8-block (DeepGEMM with UE8M0
+  scales), AWQ (Marlin), **NVFP4 W4A4** with probec's unit scales and with ModelOpt-style scales (FlashInfer
+  / CUTLASS FP4; 4-bit weights and activations, the calibrated static `input_scale`), MoE FP8-block and
+  **MoE NVFP4 (TRT-LLM FP4 MoE)**, DeepSeek-V3 MLA FP8-block on CUTLASS MLA and FlashInfer MLA.
+- **SGLang 0.5.22:** exact on online FP8 (5), FP8, FP8-block, AWQ, NVFP4 (both scale styles), MoE FP8-block
+  and MoE NVFP4. So the unit-scale NVFP4 checkpoints that SGLang garbles below Blackwell are exact on its
+  W4A4 path: the fault is in its Marlin path, not the checkpoint. MLA FP8-block on the Triton backend ran out
+  of memory (a 256 GiB allocation during setup on a 178 GB GPU; loud, not wrong output), and this time the
+  crash left an error record (`--only` now isolated).
+
+### GPU session 23 (RTX 3090, ~$0.15, aborted)
+The Oklahoma host downloaded at about 680 KB/s: SGLang's pip install ran 40 minutes without finishing, so the
+instance was destroyed and the job reran as session 23b on the Czech host.
+
+### GPU session 24 (RTX 3090, ~$0.18): two quantized-path bugs re-caught on their last buggy release
+| vLLM, RTX 3090 | last buggy | fix release |
+|---|---|---|
+| **#44735** FP8 Marlin skips the transpose of square layers: Qwen3-8B-shaped twin (o_proj 4096 × 4096), probec FP8 checkpoint | 0.23.0: **192/192 wrong** (49,094 tokens) | 0.24.0: exact |
+| the same twin, online `quantization="fp8"` | 0.23.0: **192/192 wrong** (49,112) | 0.24.0: exact |
+| Qwen3-0.6B-shaped twin (no square layer), FP8 checkpoint: control | 0.23.0: exact | 0.24.0: exact |
+| **#34577** NVFP4 Marlin scale underflow: dense twin, probec's unit scales | 0.18.1: **49,133 wrong** | 0.19.0: exact |
+| the same weights, ModelOpt-style scales: control | 0.18.1: exact | 0.19.0: exact |
+| MoE twin, unit scales | 0.18.1: **49,135 wrong** | 0.19.0: exact |
+
+Every run selected FP8 Marlin (`MarlinFP8ScaledMMLinearKernel`) or NVFP4 Marlin, as the bugs need. **The
+NVFP4 counts are identical to SGLang 0.5.22's on the same checkpoints** (49,133 dense, 49,135 MoE): SGLang's
+NVFP4 Marlin path behaves exactly like vLLM before #34577.
