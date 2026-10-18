@@ -90,8 +90,9 @@ def quant_int4(w, group=128, sym=False):
         z = torch.full_like(lo, 8)
         fits = (hi <= 7) & (lo >= -8)
     else:
-        z = -lo                                         # the minimum lands on code 0
-        fits = ((hi - lo) <= 15) & (z >= 0) & (z <= 15)
+        # a zero point in 0..15 that puts every code in 0..15 (a group without zeros, e.g. all 0.25, gets 0)
+        z = (-lo).clamp(0, 15)
+        fits = (lo + z >= 0) & (hi + z <= 15)
     s = g.double() / 2.0 ** 30
     q = (n // g[..., None]) + z[..., None]
     scale16 = s.to(torch.float16)

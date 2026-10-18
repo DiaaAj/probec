@@ -29,6 +29,18 @@ def test_designed_weights_quantize_exactly(fmt):
     assert torch.equal(dequantize(w, fmt), w)
 
 
+def test_int4_groups_without_zeros():
+    w = torch.zeros(4, 256)
+    w[0, :128] = 0.25                     # one value everywhere (MoE key-corrupt units): zero point 0
+    w[1, :128] = -0.5
+    w[2, :128] = torch.tensor([2.0, 3.0] * 64)
+    for fmt in ("int4-awq", "int4-gptq"):
+        assert quantize_weight(w, fmt)[-1], fmt
+        assert torch.equal(dequantize(w, fmt), w), fmt
+    w[3, :128] = torch.tensor([1.0, 17.0] * 64)    # 16 steps apart: no 4-bit zero point fits
+    assert not quantize_weight(w, "int4-awq")[-1]
+
+
 def test_mixed_magnitudes_only_fit_fp8():
     w = sparse_weight()
     w[3, 11] = 0.0625                     # 16x below the group's 1.0: beyond 4-bit and E2M1 ranges
