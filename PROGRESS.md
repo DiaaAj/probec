@@ -384,3 +384,26 @@ as in session 16.
 - The agent's local dry run compiled the full 28-layer twin on the laptop while my activation analysis
   was running; together they froze it (swap nearly full, load about 136). Both have been stopped, and heavy
   work now goes to rented boxes.
+
+## M6 — quantized weights (from 2026-10-18)
+Design: `docs/QUANTIZED.md`. Code: `src/probec/quant.py` (exact weight quantizers, activation fake-quant,
+calibration) and `src/probec/quantize.py` (`probec quantize`: FP8 per tensor and in 128×128 blocks, AWQ,
+GPTQ, NVFP4 checkpoints in the layouts vLLM 0.31 and SGLang 0.5.22 load, read from both engines' source by
+a research agent). CPU tests decode every format with the engines' formulas and get the designed weights
+back bit for bit.
+
+### GPU session 19 (RTX 3090, ~$0.22): online FP8, the full twin fake-quantized, the harness fix on a GPU
+- `probec certify --quant all` on the Qwen3-0.6B twin (no scale check): all 196 quantized linears exact in
+  FP8 (per tensor, 128-blocks), INT4 (AWQ, GPTQ), NVFP4 and MXFP4.
+- The reference model (HF transformers, on the GPU) with FP8 weights and fake-quantized activations, 24
+  prompts up to 4,000 tokens, 64 new tokens each: exact with FP8 per-tensor, per-token and 1×128-group
+  activations (0/1,536 each). The NVFP4 and MXFP4 runs crashed on a device mismatch in quant.py (fixed;
+  rerun in session 20).
+- vLLM 0.31 online FP8 (FP8 Marlin, weight-only, on SM86): 4 entries exact (196,608 tokens). Two entries
+  could not start: the engines torn down before them in the same process still held about 4 GB, so vLLM
+  entries now run in their own processes too.
+- SGLang 0.5.22 `--matrix default`, every entry in its own process: 11 entries exact (540,672 tokens).
+  flex_attention ×3 and Triton FP8 KV (unsupported on SM86) crashed and got error records, and the run went
+  on: the FP8 KV and NGRAM entries that session 16 never reached ran exact. **The harness fix works on a
+  GPU.**
+- SGLang online FP8 (Marlin W8A16): 5 entries exact (245,760 tokens).
