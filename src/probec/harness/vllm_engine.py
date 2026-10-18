@@ -16,6 +16,8 @@ BLACKWELL = {"dense": ["FLASH_ATTN", "FLASHINFER", "TRITON_ATTN"], "mla": ["CUTL
 
 def matrix(name, kind="dense"):
     """Serving configurations. kind: dense (GQA attention) or mla."""
+    if name == "quant":
+        return quant_matrix(kind)
     plan = []
     if name == "hopper":
         backends = HOPPER[kind]
@@ -118,6 +120,26 @@ def _llm(model, max_len, n_new, kw):
     stats = {"disable_log_stats": False} if "speculative_config" in kw else {}   # spec-decode counters
     return LLM(model=model, skip_tokenizer_init=True, dtype="bfloat16", seed=0,
                max_model_len=max_len + n_new + 128, **stats, **kw)
+
+
+def quant_matrix(kind):
+    """Online FP8 (`quantization="fp8"` on the bf16 twin): W8A8 with dynamic activation scales on SM89+,
+    FP8 Marlin weight-only on older GPUs. Quantized checkpoints (`probec quantize`) need no entries of their
+    own: the default matrices pick their format up from config.json."""
+    backends = BACKENDS[kind][:2]
+    plan = []
+    for be in backends:
+        q = {"attention_backend": be, "gpu_memory_utilization": 0.85, "quantization": "fp8"}
+        plan.append({"name": f"{be}/fp8_online", "kw": dict(q, enable_prefix_caching=True)})
+        plan.append({"name": f"{be}/fp8_online_chunk512_sample", "sample": True,
+                     "kw": dict(q, enable_prefix_caching=True, max_num_batched_tokens=512)})
+    plan.append({"name": f"{backends[0]}/fp8_online_eager_preempt",
+                 "kw": {"attention_backend": backends[0], "gpu_memory_utilization": 0.85, "quantization": "fp8",
+                        "enforce_eager": True, "enable_prefix_caching": False, "num_gpu_blocks_override": 2500}})
+    plan.append({"name": f"{backends[-1]}/fp8_online_fp8kv",
+                 "kw": {"attention_backend": backends[-1], "gpu_memory_utilization": 0.85, "quantization": "fp8",
+                        "kv_cache_dtype": "fp8"}})
+    return plan
 
 
 def spec_stats(llm):

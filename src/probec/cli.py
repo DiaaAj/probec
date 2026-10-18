@@ -25,12 +25,19 @@ def cmd_compile(a):
 
 def cmd_certify(a):
     from .certify import certify
-    rep = certify(a.probe)
+    from .quant import WEIGHT_FORMATS
+    quant = list(WEIGHT_FORMATS) if a.quant == "all" else [f for f in (a.quant or "").split(",") if f]
+    rep = certify(a.probe, quant=quant)
     print(json.dumps(rep, indent=1))
     return 0 if rep["ok"] else 1
 
 
 def cmd_check(a):
+    if a.quant_act or a.quant_weight:
+        from .quant import check_quant
+        rep = check_quant(a.probe, act=a.quant_act, weight=a.quant_weight, device=a.device, seed=a.seed)
+        print(json.dumps(rep))
+        return 0 if rep["mismatches"] == 0 else 1
     from .check import run_checks
     rep = run_checks(a.probe, seed=a.seed, quick=a.quick)
     if a.out:
@@ -98,6 +105,8 @@ def main(argv=None):
 
     c = sub.add_parser("certify", help="exactness report for a compiled probe")
     c.add_argument("probe")
+    c.add_argument("--quant", help="also check that the weights quantize exactly: comma-separated formats "
+                                   "(fp8, fp8-block, int4-awq, int4-gptq, nvfp4, mxfp4) or 'all'")
     c.set_defaults(fn=cmd_certify)
 
     c = sub.add_parser("check", help="CPU checks with HF transformers (reference semantics)")
@@ -105,6 +114,10 @@ def main(argv=None):
     c.add_argument("--quick", action="store_true")
     c.add_argument("--seed", type=int, default=1)
     c.add_argument("--out")
+    c.add_argument("--quant-act", help="instead: generate with linear inputs fake-quantized "
+                                       "(fp8-tensor, fp8-token, fp8-group128, nvfp4, mxfp4)")
+    c.add_argument("--quant-weight", help="instead: generate with dequantized weights of this format")
+    c.add_argument("--device", default="cpu", help="device for --quant-act / --quant-weight runs")
     c.set_defaults(fn=cmd_check)
 
     c = sub.add_parser("run", help="run a probe through an inference engine and compare with the oracle")

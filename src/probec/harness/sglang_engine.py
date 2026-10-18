@@ -10,6 +10,16 @@ BACKENDS_HOPPER = ["fa3"]
 
 
 def matrix(name, kind="dense"):
+    if name == "quant":       # online FP8 on the bf16 twin; quantized checkpoints use the default matrices
+        backends = ["flashinfer", "triton"] if kind == "dense" else ["triton", "flashinfer"]
+        plan = []
+        for be in backends:
+            plan.append({"name": f"{be}/fp8_online", "kw": {"attention_backend": be, "quantization": "fp8"}})
+            plan.append({"name": f"{be}/fp8_online_chunk512_sample", "sample": True,
+                         "kw": {"attention_backend": be, "quantization": "fp8", "chunked_prefill_size": 512}})
+        plan.append({"name": f"{backends[0]}/fp8_online_fp8kv",
+                     "kw": {"attention_backend": backends[0], "quantization": "fp8", "kv_cache_dtype": "fp8_e4m3"}})
+        return plan
     plan = []
     backends = ["flashinfer", "triton"] if name == "quick" else list(BACKENDS_DEFAULT)
     if name == "full":

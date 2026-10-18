@@ -88,6 +88,15 @@ probec run probes/qwen3-8b --engine sglang --matrix default
 probec report out/results.jsonl                            # markdown summary
 ```
 
+Quantized paths (design: [`docs/QUANTIZED.md`](docs/QUANTIZED.md)); compile these twins with
+`--no-scale-check`, whose calibration needs more precision than FP8 or FP4 keep:
+
+```bash
+probec certify probes/qwen3-8b --quant all                 # do the weights quantize exactly in each format?
+probec check probes/qwen3-8b --quant-act fp8-token --quant-weight fp8 --device cuda   # reference model, fake-quantized
+probec run probes/qwen3-8b --engine vllm --matrix quant    # online FP8 in the engine
+```
+
 Matrices: `quick`, `medium`, `default`, `full`, `hopper` (FA3, FlashMLA, FP8 paths), `ep2` (tensor and
 expert parallelism on 2 GPUs), `replay` (version-neutral settings for testing old releases).
 

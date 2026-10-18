@@ -76,6 +76,13 @@ quantize losslessly, so the expected token stream is the bf16 one. KV-cache quan
 covered by v1.
 
 ## 4. Plan
+Status (2026-10-18): step 1 is in `probec certify --quant` (weights) and `probec check --quant-act /
+--quant-weight` (`src/probec/quant.py`). On a 2-layer twin without the scale check, every weight is exact in
+all six formats and generation stays exact under all five activation schemes (FP8 per tensor, per token
+and per 1×128 group, NVFP4, MXFP4). With the scale check on, its calibrated query and its flag MLP's
+thresholds need more than FP8's 3 mantissa bits, so quantized twins are compiled with `--no-scale-check`.
+The online-FP8 matrices (`--matrix quant`) exist for both engines.
+
 1. **CPU certification (no GPU).** `probec certify --quant <format>`: check that every weight group is
    exact (the §1 table, per twin and program, MoE and MLA included), then run the CPU reference with
    every linear's input and weight fake-quantized in that format and confirm the oracle's tokens. This

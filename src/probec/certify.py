@@ -17,7 +17,7 @@ def _tensors(probe_dir):
                 yield k, f.get_tensor(k)
 
 
-def certify(probe_dir, min_score_nats=20.0, min_logit_nats=20.0, max_rope_drift=0.05):
+def certify(probe_dir, min_score_nats=20.0, min_logit_nats=20.0, max_rope_drift=0.05, quant=()):
     with open(os.path.join(probe_dir, "probe_meta.json")) as f:
         meta = json.load(f)
     with open(os.path.join(probe_dir, "config.json")) as f:
@@ -77,5 +77,10 @@ def certify(probe_dir, min_score_nats=20.0, min_logit_nats=20.0, max_rope_drift=
         pair_idx = sorted({d % (spec["head_dim"] // 2) for d in meta["slow_dims"]})
         drift = float(inv[pair_idx].max() * meta["max_context"])
         chk["rope_drift_rad"] = {"ok": drift <= max_rope_drift, "rad": drift, "context": meta["max_context"]}
+    # 5. optional: every quantized linear's weights survive the given formats exactly
+    if quant:
+        from .quant import certify_weights
+        q = certify_weights(_tensors(probe_dir), quant, score_only)
+        chk["quantized_weights"] = {"ok": all(r["exact"] == r["tensors"] for r in q.values()), "formats": q}
     rep["ok"] = all(v["ok"] for v in chk.values())
     return rep
