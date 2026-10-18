@@ -50,8 +50,10 @@ Details and raw numbers: [`docs/RESULTS.md`](docs/RESULTS.md).
      scheduler and CUDA graphs are on and requests sharing prefixes run concurrently (8/192 requests;
      deterministic: the same requests fail at the same steps on three RTX 3090 hosts, and it also shows
      on an H100). Every request that reuses the corrupted prefix inherits the error. Real-model
-     comparisons cannot isolate it; the probe's exact oracle does. Gone in 0.5.22 (0/192 on the same
-     machine and workload); the change that removed it is not identified yet.
+     comparisons cannot isolate it; the probe's exact oracle does. Not triggered in 0.5.22: bisected to
+     #42720, a scheduler optimization that drops a discarded trailing decode for requests finishing by
+     length, so the bug is probably hidden rather than fixed (requests ending on EOS or a stop string
+     still run that decode).
   2. *vLLM 0.25.1–0.27.1, unreported:* MLA with prefix caching returns wrong outputs for 7/96 requests
      on a DeepSeek-V2-Lite twin, from their first token. Bisected with per-commit builds to the fix:
      #50613, merged as a prefill-scheduling optimization.

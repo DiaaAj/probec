@@ -5,7 +5,8 @@
 - Balance checks: $38.90 after session 8 (spent $3.87; the per-session estimates below sum to $3.20, the
   rest is disk and bandwidth charges); $36.19 after session 11 (spent $6.58); $29.69 after the M1–M4
   sessions (spent $13.08, trailing charges included); $29.46 before session 16 (sessions 15/15b: $0.23);
-  **$29.27 after session 16 (spent $13.50 in all; no instance left running).**
+  $29.27 after session 16 (spent $13.50 in all); **$28.25 after session 17 (spent $14.52 in all; no
+  instance left running).**
 
 | when (UTC) | instance | GPU | $/h | minutes | est. cost | purpose / result |
 |---|---|---|---|---|---|---|
@@ -33,3 +34,5 @@
 | 2026-10-12T02:43Z | 55486136 | RTX 3090 (GB) | 0.30 | 21 | ~0.10 | session 15b: **SGLang main @ d0a098b (0.5.22.dev813, Rust extensions built): NGRAM repro 0/192 wrong** (0.5.21 on the same machine: 8/192); NGRAM configuration unchanged on main |
 | 2026-10-17T18:41Z | 56435041 | RTX 3090 (CZ) | 0.26 | 3 | ≈0 (stopped, never ran) | session 16 attempt 1: the host parked the container as stopped; destroyed after 3 min |
 | 2026-10-17T18:44Z | 56435467 | RTX 3090 (SE) | 0.27 | 47 | ~0.19 | session 16: **SGLang 0.5.22: NGRAM repro 0/192 wrong; 0.5.21 on the same machine: 8/192** (same requests and steps as before); default matrix on 0.5.22: flashinfer/triton × 4 configs exact (393K tokens), then flex_attention's Inductor error ended the run (SIGQUIT from the scheduler); 17 min of the 47 were the image pull |
+| 2026-10-17T23:29Z | 56466166 | RTX 3090 (US-UT) | 0.263 | 3 | ≈0 (stopped, never ran) | session 17 attempt 1: the host parked the container as stopped; destroyed after 3 min |
+| 2026-10-17T23:32Z | 56466525 | RTX 3090 (CZ) | 0.324 | 151 | ~0.81 (+ disk) | session 17: **SGLang NGRAM bug bisected** over main bd78095 → d0a098b (813 commits; both ends, 10 steps and 2 re-tests, each built from source): first clean commit #42720, which drops the discarded trailing decode in overlap mode — likely hides the bug rather than fixing it |

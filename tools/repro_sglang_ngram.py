@@ -45,9 +45,12 @@ def main():
     extra = json.loads(a.extra)
     base = run(a.probe, prompts, False, extra)
     spec = run(a.probe, prompts, True, extra)
+    expected = [probe.expected(p, 256) for p in prompts]
     diverge = [i for i, (x, y) in enumerate(zip(base, spec)) if x != y]
-    wrong = [i for i, (p, y) in enumerate(zip(prompts, spec)) if y != probe.expected(p, 256)]
+    wrong = [i for i, (e, y) in enumerate(zip(expected, spec)) if y != e]
+    base_wrong = [i for i, (e, x) in enumerate(zip(expected, base)) if x != e]
     print(f"NGRAM vs no-spec: {len(diverge)}/{len(prompts)} requests differ; NGRAM vs exact oracle: {len(wrong)} wrong")
+    print(f"no-spec vs exact oracle: {len(base_wrong)} wrong; NGRAM wrong requests: {wrong}")
     for i in diverge[:8]:
         j = next(k for k, (x, y) in enumerate(zip(base[i], spec[i])) if x != y)
         print(f"  request {i}: prompt {len(prompts[i])} tokens, first divergence at output token {j}")

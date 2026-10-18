@@ -1,4 +1,4 @@
-# Validation results (2026-10-07, updated 2026-10-17)
+# Validation results (2026-10-07, updated 2026-10-18)
 
 Probe twins run through unmodified engines; every generated token is compared with the oracle.
 "0 mismatches" means every generated token was exactly right. GPUs were rented on vast.ai (RTX 3090 =
@@ -7,10 +7,11 @@ tools/summarize_runs.py` reproduces the totals below, and `PROGRESS.md` has the 
 
 ## Summary
 - **215 matrix entries, about 6.2M generated tokens** on vLLM 0.31 and SGLang 0.5.21 across RTX 3090,
-  H100 and B200 GPUs, plus SGLang 0.5.22 on an RTX 3090 (and older vLLM releases and per-commit builds
-  for replays and bisection).
+  H100 and B200 GPUs, plus SGLang 0.5.22 on an RTX 3090 (and older vLLM releases and per-commit vLLM
+  and SGLang builds for replays and bisection).
 - Every entry with mismatches has a known cause:
-  - **engine bugs** — SGLang NGRAM speculative decoding in 0.5.21 (gone in 0.5.22), vLLM MLA prefix caching in 0.25.1–0.27.1
+  - **engine bugs** — SGLang NGRAM speculative decoding in 0.5.21 (not triggered since #42720,
+    probably not fixed), vLLM MLA prefix caching in 0.25.1–0.27.1
     (fixed by #50613 in 0.28.0), vLLM #42642 in 0.25.1 (fixed in 0.26.0), vLLM #52796 in 0.28.0 on
     Blackwell (fixed in 0.29.0);
   - **probe bugs found and fixed during validation** — the positional probe before its identical-token
@@ -55,7 +56,8 @@ fraction; the matrix now lowers it for that entry).
   token detected.
 
 ## 3. Real bugs observed
-1. **SGLang 0.5.21, NGRAM speculative decoding (gone in 0.5.22).** Deterministic wrong greedy outputs:
+1. **SGLang 0.5.21, NGRAM speculative decoding (not triggered in 0.5.22 since #42720).** Deterministic
+   wrong greedy outputs:
    8/192 requests (1,793 tokens) on an RTX 3090, 6 on an H100 — the first failure is the same request at
    the same generated step on both, and the same 8 requests fail at the same steps on three RTX 3090
    hosts. It needs NGRAM + radix cache + overlap scheduler + CUDA graphs (all
@@ -66,10 +68,15 @@ fraction; the matrix now lowers it for that entry).
    #23392 (closed without a fix). Real-model comparisons cannot isolate it (benign numeric divergence
    is the same size); the probe's exact oracle can. It does not reproduce on SGLang main @ d0a098b
    (2026-10-12) or on 0.5.22 (2026-10-16), each run on the same machine and workload as an 8/192 control
-   of 0.5.21. NGRAM's configuration is unchanged, so the difference comes from the KV-cache and
-   memory-pool rework after 0.5.21. Whether that fixed the bug or only stopped this workload from
-   triggering it is not known yet; a bisection over main would tell. A draft issue with a repro script
-   is ready.
+   of 0.5.21. **Bisected to one commit (§3b): SGLang #42720**, "Skip the decode for a request whose last
+   token is already in flight". The overlap scheduler plans step i+1 before it reads step i's result, so
+   a request whose in-flight result carries its last token got one more decode, whose output was thrown
+   away; #42720 skips that decode for requests that finish by `max_new_tokens`. Its description presents
+   it as an optimization and says requests finishing on EOS or a stop string still run the trailing
+   decode. Our workload ends every request by length (`ignore_eos`, 256 tokens), so the bug is most
+   likely hidden in 0.5.22 rather than fixed, with the discarded trailing NGRAM verify the likely writer
+   of the overwritten KV. Not yet tested: 0.5.22 with requests that end on a stop token. A draft issue
+   with a repro script is ready.
 2. **vLLM 0.25.1 – 0.27.1, MLA with prefix caching (fixed in 0.28.0).** On a DeepSeek-V2-Lite twin, the
    same 7 of 96 requests are wrong from their first generated token on 0.25.1, 0.26.0 and 0.27.1; 0.28.0,
    0.29.0, 0.30.0 and 0.31.0 are exact on the identical workload, as is 0.31.0 with prefix caching off,
@@ -113,6 +120,24 @@ Per-commit wheels come from `wheels.vllm.ai/<sha>`; `tools/gpu_job_s9b.sh` is th
 so we also pushed more cached context through each step (prompts up to 12K tokens, 65–128 requests,
 token budgets up to 65,536). vLLM 0.27.1 fails two of these four workloads (13 and 2 wrong requests);
 0.31.0 is exact on all four.
+
+### 3b. Bisection of bug 1
+The NGRAM repro (`tools/repro_sglang_ngram.py`: 192 concurrent requests, prompts up to 16K tokens with
+shared prefixes, 256 greedy tokens each, NGRAM with 4 draft tokens, flashinfer), RTX 3090. v0.5.21 is a
+release-branch tag two unrelated cherry-picks past main's bd78095, so the bisection ran on main from
+bd78095 to d0a098b (813 commits). Every commit was built from source, Rust extensions included, in a
+fresh venv; the run without speculation was exact at every commit.
+
+| SGLang main (position in the 813) | NGRAM wrong requests |
+|---|---|
+| bd78095 (0), 45db430 (406), e7530a3 (507), 93f2acf (558), b4fe282 (583), 4ee3f0f (596), 5d8e98b (602), 3c1703d (605) | 8 (requests 15, 48, 54, 63, 67, 100, 116, 125 — as on the 0.5.21 wheels) |
+| 1fc6b89 (607, a docs-only commit; tested twice) | the same 8 |
+| e14ef4b (608) = #42720 "[Scheduler] Skip the decode for a request whose last token is already in flight" (tested twice) | 0 |
+| cba1d07 (609), d0a098b (813) | 0 |
+
+The torch 2.14.1, sglang-kernel 0.4.9 and FlashInfer 0.7.0.post1 upgrades all land before position 406,
+which still fails, so no dependency change is involved. `tools/gpu_job_s17_bisect.sh` and
+`tools/bisect_ngram_step.sh` are the scripts.
 
 ## 4. Replays that did not trigger
 - vLLM #36616 (V3.2 sparse top-k padding): 0.23.0 and 0.24.0 exact on an H100 (the image lacked

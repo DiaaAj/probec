@@ -316,3 +316,33 @@ SGLang 0.5.22 was released on 2026-10-16; its tag contains main @ d0a098b plus 1
   job did this in shell with `--only`).
 - First attempt: a Czech host parked the container as stopped; destroyed after 3 minutes. The Swedish
   host took 17 minutes to pull the image.
+
+## GPU session 17 (RTX 3090, ~$1.00) — bisecting the SGLang NGRAM bug
+v0.5.21 is a release-branch tag two cherry-picks (a test change and an InternVL fix) past main's bd78095,
+so the bisection ran on main from bd78095 to d0a098b: 813 commits. Each test builds SGLang from source in
+a fresh venv (uv; `git clean -ffdx` first; Rust extensions included, with a shared Cargo target dir) and
+runs `tools/repro_sglang_ngram.py`, which now also prints the run without speculation against the oracle
+and the wrong request ids. A commit that failed to build, or whose run without speculation was wrong,
+would have been skipped; none was.
+- Both ends re-tested first on this machine: bd78095 8/192 wrong (the same 8 requests as the 0.5.21
+  wheels), d0a098b 0/192.
+- 10 steps. **First clean commit: e14ef4b = #42720, "[Scheduler] Skip the decode for a request whose last
+  token is already in flight".** Its parent 1fc6b89 is a docs-only commit with the same 8 wrong requests;
+  both were tested again at the end, with the same results. Every failing commit failed the same 8
+  requests. The dependency upgrades (torch 2.14.1, sglang-kernel 0.4.9, FlashInfer 0.7.0.post1) all land
+  before position 406, which still fails.
+- #42720 is an optimization; its test counts decode passes. In overlap mode it drops the trailing decode
+  whose output was thrown away, but only for requests that finish by `max_new_tokens`; its description
+  says requests that end on EOS or a stop string still run it. Every request in our workload ends by
+  length, so the bug is most likely hidden in 0.5.22, not fixed. Next: 0.5.22 with requests that end on
+  stop tokens, and 0.5.22 with the skip switched off.
+- uv used the image's managed Python 3.11 (`/opt/uv/python`), not the system 3.12; the bug reproduces
+  the same under it. Source builds report version "0.5.22" (SGLang computes it with
+  `scripts/release/get_version_tag.py`), so the step script's `+g<sha>` check had nothing to check; uv's
+  log shows each build came from the checkout.
+- A step took about 10.5 minutes: about 6.3 to build (about 3.3 of them recompiling the Rust workspace
+  crates even with a warm target dir) and 3.8 to run. The 120-minute step budget would have stopped the
+  bisection after 8 steps, so the deadline was extended on the box (the step script is re-read by each
+  step).
+- First attempt: a Utah host parked the container as stopped; destroyed after 3 minutes. The Czech host
+  pulled the image in about 2 minutes.
