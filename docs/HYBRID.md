@@ -139,11 +139,12 @@ canonical.
 2. **Done:** the `hybrid` program and its oracle, CPU-checked through HF transformers (chunked prefill and
    recurrent decode: 0 mismatches, bit-exact internal states); the state-fault campaign; MoE hybrids with
    the routed experts at zero and the pointer logic in the gated shared expert.
-3. **GPU session 25:** vLLM 0.31 and SGLang 0.5.22 on an RTX 3090 with the full-depth Qwen3.5-0.8B twin
-   (`--matrix hybrid`: default, attention backends, prefix caching with shared prefixes, chunked prefill,
-   preemption, state dtype, decode kernels, n-gram speculation with decoys, FP8 KV), plus 4B, 27B and
-   35B-A3B twins at reduced depth.
-4. Qwen3-Next (fused, per-key-head interleaved `in_proj_qkvz` / `in_proj_ba`; MoE in every layer).
+3. **Done (sessions 25–26):** vLLM 0.31 and SGLang 0.5.22 on an RTX 3090 with the full-depth Qwen3.5-0.8B
+   twin (`--matrix hybrid`) and the 4B, 27B, 35B-A3B MoE and Qwen3-Next twins at reduced depth. SGLang was
+   exact on everything, NGRAM rollback included; vLLM was exact except n-gram speculative decoding, which
+   loses accepted tokens' state updates (`docs/RESULTS.md` §7.3; session 27 isolates it). The first runs
+   exposed a probe bug (`docs/RESULTS.md` §5), fixed with the null slot (§1).
+4. **Done:** Qwen3-Next (fused, per-key-head interleaved `in_proj_qkvz` / `in_proj_ba`; MoE in every layer).
 
 ## 6. Later
 - **Mamba-2 hybrids** (Nemotron-H, Granite 4.0-H): the same slots with `B` (keys) and `C` (queries) one-hot

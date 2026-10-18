@@ -571,3 +571,14 @@ roll back, change later hops.
 - **SGLang Marlin MoE (AWQ), one request at a time** (`tools/sgl_repeat.py`): the same request run 24 times
   gave 3–6 distinct outputs, 12 of 96 runs wrong. With the Triton WNA16 kernel, 0 of 32.
 - The detached runner worked on both boxes: output streamed, results pulled, exit status seen.
+
+### Session 27b (RTX 3090 SE, ~$0.10; session 27's host never pulled the image): the vLLM n-gram bug isolated
+The `hybridspec` matrix reruns 26a's failing entry (seed 12, the same 192 prompts) with one setting changed:
+- **Deterministic:** the same 967 wrong tokens in the same 8 requests on a rerun and on another host.
+- **No effect:** async scheduling off, `enforce_eager`, and `max_num_seqs=1` (one request at a time).
+- **Still fails:** 1 and 2 speculative tokens (1 and 7 requests), and the GPU n-gram drafter (5).
+- **Exact:** the default workload, where the drafter proposes only correct continuations (32,712 of 32,712
+  draft tokens accepted).
+
+So it needs a partly accepted draft, where the state must be taken at an intermediate position. Issue body:
+`notes/filing/vllm_hybrid_ngram.md`.

@@ -322,4 +322,21 @@ explains every failure the same way: the GDN state lacks the write of a token ac
 cases the one accepted in the step just before. No failure is explained by a rejected draft's write being
 kept. Several requests are wrong for a single token and then continue correctly, which is what a single
 missing write does in the probe. Related, but different: #53912 (MTP + prefix caching on hybrids, rate tracking
-prefix-cache hits) and #61738 (≥ 7 speculative tokens). Session 27 isolates it further.
+prefix-cache hits) and #61738 (≥ 7 speculative tokens).
+
+Isolation (session 27b, another host, the same 192 prompts):
+
+| variant | wrong requests |
+|---|---|
+| repeat; repeat on another host (session 26a) | 8, 8 (the same 967 tokens, the same requests) |
+| `async_scheduling=False` | 8 (identical) |
+| `enforce_eager=True` | 8 (identical) |
+| `max_num_seqs=1` (one request at a time) | 8 (identical) |
+| `num_speculative_tokens` 1 / 2 (instead of 4) | 1 / 7 |
+| `method="ngram_gpu"` | 5 |
+| n-gram without decoy prompts: every draft is accepted (32,712 of 32,712 tokens) | 0 |
+
+It is deterministic and does not depend on batching, async scheduling, CUDA graphs, the attention backend or
+the verify kernel. Each failing request fails the same way alone. It needs drafts that are only partly
+accepted: then vLLM must take the state at the last accepted position, and that state lacks the last
+accepted token's update.
