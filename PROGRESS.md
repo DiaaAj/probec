@@ -529,3 +529,27 @@ roll back, change later hops.
   destroyed the instance; only the entries above survived, through a monitor. The runner now runs jobs
   detached and pulls results every 4 minutes. Sessions 25b (vLLM, with the `hybriddebug` matrix) and 25c
   (SGLang) rerun everything.
+
+### Sessions 25b / 25c (RTX 3090, ~$0.21): a probe bug in the hybrid program, found and fixed
+- vLLM (25b) and SGLang (25c) both got 8–22 of 192 requests wrong on every fresh-prompt entry of the hybrid
+  matrix. The entry with seed 0 failed **the same requests at the same steps with the same wrong tokens** on
+  both engines. Shared-prefix workloads were exact, except one where every request shares a single base
+  prompt, which therefore fails all-or-nothing.
+- The reference model (HF, CPU), run on those prompts, also gave the engines' tokens, so the oracle was
+  wrong, not the engines. Tracing request 113 layer by layer:
+  - Layers 0–18 were bit-exact at the failing step.
+  - Layer 19 (attention) read class token 601. That prompt token's residual had an RMS of 13 instead of 8,
+    so its payload came out scaled (−0.219 instead of −1).
+  - Layer 20 (GDN) then read class 1630's slot with a negative query and got the value with its sign flipped.
+- **Cause:** prompt tokens whose chains break in prefill carry junk pointers. The GDN query's L2 norm and the
+  gated RMSNorm both divide by the read's own size, so mildly negative detectors read slots at full strength.
+  Each layer added more junk, until the residuals of tokens that are read later were off by 60%.
+- **Fix:** each GDN key head keeps a null key dim that nothing writes and every query reads with 65,536. A
+  stray detector then reads at about 1% of the gated norm's floor, and a match reads 2,000 times above it.
+  The detectors are sharper too: 1024·(dot − 62). Hybrid twins hold 2,032 classes, one null slot per head.
+  An intermediate fix (slope 16, no null slot) moved the band where reads flip instead of removing it: drift
+  2.1·10⁻³ on a 12-layer twin.
+- **New check:** `probec check` reports `residual_drift`, the largest drift of a read token's RMS from 8 over
+  all layers, and fails above 10⁻³. After the fix: 4.0·10⁻⁴ on the full-depth twin (4.2·10⁻⁴ on the 12-layer
+  one, the same as the attention-only twins' junk), and the reference model is exact on requests that failed.
+- Sessions 26a (vLLM) and 26b (SGLang) rerun the hybrid matrices with the fixed twins.

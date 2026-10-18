@@ -32,29 +32,41 @@ query `q`, value `v` and gates `β`, `g`:
 after a causal depthwise convolution (kernel 4) and SiLU on `q`, `k`, `v`, and an L2 norm on `q` and `k`.
 The output `o` goes through a gated RMSNorm (`norm(o) · w · silu(z)`) and `out_proj`.
 
-**Slots.** Qwen3.5 and Qwen3-Next have 16 key heads of dimension 128, so a GDN layer has 2,048 one-hot
-keys: exactly as many as the recall program's classes. Each GDN layer assigns every class `c` its own
-(key head, key dim) slot through a random permutation (different per layer, so a state read from the
-wrong layer finds another class).
+**Slots.** Qwen3.5 and Qwen3-Next have 16 key heads of dimension 128. One key dim per head is a *null
+slot* (below), which leaves 2,032 one-hot keys per GDN layer, so hybrid twins use 2,032 classes. Each GDN
+layer assigns every class `c` its own (key head, key dim) slot through a random permutation (different per
+layer, so a state read from the wrong layer finds another class).
 
 **Writes.** Every token carries a static identity field `GK`: code(c) for a class token `c` and for its
 echo `e(c)`, and a code that matches no class for fillers and markers. The key projection is a bank of
-2,048 detectors, one per slot: detector `j` computes `2·⟨code(c_j), GK⟩ − 88`. That is 40 when the token's
-identity is `c_j` and at most −40 otherwise (codes correlate at most 24 of 64). After SiLU, the key is
-`40` on the token's own slot and below 10⁻¹⁵ elsewhere, and the L2 norm makes it exactly one-hot. With
-`β = σ(32) = 1` and `exp(g) = 1`, the delta rule replaces the slot's row with the new value, exactly:
-**every slot holds the value of the latest token written to it.** Fillers and markers write nothing:
-their keys are below 10⁻¹³.
+detectors, one per slot: detector `j` computes `1024·(⟨code(c_j), GK⟩ − 62)`. That is 2,048 when the token's
+identity is `c_j` and at most −38,912 otherwise (codes correlate at most 24 of 64). After SiLU, the key is
+2,048 on the token's own slot and exactly 0 elsewhere (SiLU underflows), and the L2 norm makes it exactly
+one-hot. With `β = σ(32) = 1` and `exp(g) = 1`, the delta rule replaces the slot's row with the new value,
+exactly: **every slot holds the value of the latest token written to it.** Fillers and markers write
+nothing: their keys are zero.
 
 **Values.** A class token `c` writes the code of `nxt(c)`. An echo token `e(c)`, the model's output, writes
 the code of `nxt²(c)` into the same slot. A value head stores a 64-bit code as 32 bit pairs, each pair as
-a one-hot of 4 dims, so exactly 32 of its 128 dims are 40 and the rest 0. The gated RMSNorm then outputs
+a one-hot of 4 dims, so exactly 32 of its 128 dims are 32 and the rest 0. The gated RMSNorm then outputs
 exactly 2 on those 32 dims (their RMS is a quarter of the head's), `w = 1/64` and `silu(z) = 32` make it 1,
 and `out_proj` writes the decoded ±1 code into the register, as an attention hop does.
 
-**Reads.** The query projection is the same bank of detectors on the pointer field, so the query is
-one-hot on the pointer's slot, and the head of that slot returns the slot's value. The other key heads
-return values below 10⁻⁷, which the residual's rounding absorbs.
+**Reads.** The query projection is the same bank of detectors on the pointer field, plus a constant 65,536
+on each head's null key dim, which no token writes. A head whose detector matches reads its slot at
+`2048 / 65,568` of the query's norm; the gated RMSNorm divides that scale out, so the read is exactly the
+slot's value. The other heads read only their empty null slot, exactly 0.
+
+The null slot exists because the reads must not amplify junk. Prompt tokens whose chains break in prefill
+(they look up a class that only comes later) carry junk pointers. The query's L2 norm divides by the query's
+own size, and the gated RMSNorm by the read's, so without the null slot a single detector at −12 (SiLU
+−7·10⁻⁵) reads its slot at full strength, with the wrong sign. In session 25 such reads made junk grow from
+layer to layer, until the attention payloads that later tokens read from those prompt tokens came out
+scaled (their residuals' RMS reached 13 instead of 8). Both engines and the reference model then agreed on
+outputs the oracle did not predict. With the null slot, SiLU's most negative value (−0.28) reads at 0.28 /
+65,536, about 1% of the gated norm's floor (its ε), while a match reads 2,000 times above it.
+`probec check` now also reports how far prompt tokens' residuals drift from the canonical RMS (`residual_drift`;
+it must stay below 10⁻³, inside bf16's rounding basin).
 
 **Semantics.** A GDN hop from class `y` goes to `nxt(y)` if the latest token written to `y`'s slot is the
 class token `y`, and to `nxt²(y)` if it is an echo `e(y)`. Prompts contain every class of one pool exactly
@@ -89,24 +101,24 @@ The KV-cache errors that recall catches are still caught in the attention layers
 | op | why it is exact |
 |---|---|
 | in_proj (q, k, v detectors, z, b, a) | each output is a 1- or 2-term dot product of ±1/8 inputs and power-of-two weights plus a constant from the ballast: small integers, exact in bf16 |
-| causal conv1d | weight `[0, 0, 0, 1]`: the output is the current input; SiLU(40) = 40 and SiLU(≤ −40) < 10⁻¹⁵ in fp32 |
-| L2 norm of q, k | `40 / √(1600 + 10⁻⁶)` rounds to exactly 1 in fp32; the other entries stay below 10⁻¹³ |
+| causal conv1d | weight `[0, 0, 0, 1]`: the output is the current input; SiLU(2048) = 2048 and SiLU(≤ −2048) = 0 in fp32 |
+| L2 norm of q, k | keys: `2048 / √(2048² + 10⁻⁶)` is exactly 1; queries: `[2048, 65536] / 65,568` on the matched and null dims, inexact, but only the read's scale changes (next row) |
 | gates | `β = σ(32)` is 1 in fp32; `g = −exp(A_log) · softplus(−32)` is 0 or −10⁻¹⁴, so `exp(g)` and its chunked cumulative products are exactly 1 |
-| delta rule, chunked or recurrent | one-hot keys make `Sᵀk` one row of `S`; values are 0 or 40, differences 0 or ±40; the chunked form's triangular solve has entries in {0, ±1}. Every product is exact in bf16 or fp32 |
-| query scale `d_k^−½` and the read | `o = 0.0884 · v` is inexact (≈2⁻²⁴ relative), but the gated RMSNorm divides it out: the normalized value is 2 to within 10⁻⁶, and bf16 rounds it to exactly 2 |
+| delta rule, chunked or recurrent | one-hot keys make `Sᵀk` one row of `S`; values are 0 or 32, differences 0 or ±32; the chunked form's triangular solve has entries in {0, ±1}. Every product is exact in bf16 or fp32 |
+| query scale `d_k^−½`, the null slot and the read | `o = 0.0884 · 0.031 · v` is inexact, but the gated RMSNorm divides the scale out: the normalized value is 2 to within 3·10⁻⁴ (ε's share), and bf16 rounds it to exactly 2 |
 | gated RMSNorm, out_proj, residual | outputs on {0, 1}; the register receives exactly ±1, as from an attention hop |
 | attention layers (gated) | recall's attention with the output gate at `σ(32) = 1`; codes sit in the dims RoPE does not rotate (partial rotary factor 0.25), so lookups are position-invariant without changing rope_theta; zero-centered norms get weight 0 |
 
-Leakage (the 10⁻¹³ keys of fillers, the 10⁻⁷ reads of unused heads) stays below a thousandth of half a
-bf16 ulp of the register's ±1 values, so the residual stays canonical, and the bit-exact internal-state
-check verifies this.
+Keys of fillers and markers are exactly 0, and non-matching heads read only their empty null slot, so
+no leakage reaches the register. The bit-exact internal-state check verifies that the residual stays
+canonical.
 
 ## 4. Engine notes (vLLM 0.31, SGLang 0.5.22; read from the source at those tags)
 - **Kernels.** Both engines run FLA-derived Triton kernels: chunked prefill (chunk size 64), a packed recurrent
   kernel for decode, and a sigmoid-gating kernel for mixed and speculative batches; vLLM also has a CUDA
   kernel for speculative verification and FlashInfer prefill on SM90 and SM100. Their L2 norms differ in
-  form (`x / √(Σ+ε)`, `x · (1/√(Σ+ε))`, `x · rsqrt(Σ+ε)`). With the detector's 32, Σ = 1024 and every form
-  gives exactly 1. In prefill both engines round the normalized q and k to bf16 first, and SGLang rounds
+  form (`x / √(Σ+ε)`, `x · (1/√(Σ+ε))`, `x · rsqrt(Σ+ε)`). For keys, Σ = 2048² and every form gives exactly
+  1; for queries the forms differ in the last bits, which the gated RMSNorm removes. In prefill both engines round the normalized q and k to bf16 first, and SGLang rounds
   β to bf16 as well, which is exact for 1. GDN prefill asserts bf16 or fp16 inputs: an fp32 twin cannot run.
 - **State.** fp32 for Qwen3.5 in both engines (from the config's `mamba_ssm_dtype`), the conv state in bf16.
   vLLM keeps one state block per speculative position and reads the state of the last accepted token;

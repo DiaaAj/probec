@@ -13,10 +13,13 @@ HARDWARE = {"m1-gpu1": "RTX 3090", "m2-gpu2": "RTX 3090", "s3-gpu3": "RTX 3090",
             "s5-ep": "2x RTX 3090", "s6-hopper": "H100", "s7": "RTX 3090", "s9a2": "RTX 3090",
             "s9b2": "RTX 3090", "s10": "H100", "s11": "H100", "s12": "RTX 3090", "s13c": "B200",
             "s14": "B200", "s16": "RTX 3090", "s19": "RTX 3090", "s20": "H100 PCIe", "s21": "RTX 3090",
-            "s22": "B200", "s23b": "RTX 3090", "s24": "RTX 3090", "s25": "RTX 3090"}
+            "s22": "B200", "s23b": "RTX 3090", "s24": "RTX 3090", "s25": "RTX 3090", "s25b": "RTX 3090",
+            "s25c": "RTX 3090", "s26a": "RTX 3090", "s26b": "RTX 3090"}
 # probe-side causes, fixed during validation: the positional probe before the identical-token prefix
-# (sessions 6 and 7), and the first MLA scale check under FP8 query quantization (session 10)
-PROBE_BUGS = {("s6-hopper", "posrecall"), ("s7", "posrecall"), ("s10", "mla", "FLASHMLA/fp8kv")}
+# (sessions 6 and 7), the first MLA scale check under FP8 query quantization (session 10), and the first
+# hybrid program, whose GDN reads amplified prompt tokens' junk (sessions 25b, 25c; fixed with the null slot)
+PROBE_BUGS = {("s6-hopper", "posrecall"), ("s7", "posrecall"), ("s10", "mla", "FLASHMLA/fp8kv"),
+              ("s25b", "hybrid"), ("s25c", "hybrid")}
 
 
 def cause(session, f, r):

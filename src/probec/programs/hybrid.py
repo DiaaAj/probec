@@ -19,12 +19,17 @@ from .recall import (BVAL, CODE, KC, P, PC, R, RMS, SQ, attention, base_rows, bf
                      lm_head, make_pools, pointer_units, validate)
 
 GK = 4 * CODE                   # static identity: code(c) for a class c and for its echo e(c)
-DET = 32.0                      # detector pre-activation on a match: SiLU(32) == 32, 32 * rsqrt(32^2) == 1
+DET = 2048.0                    # query/key detector pre-activation on a match (SiLU(2048) == 2048, exact)
+SHARP = 1024.0                  # detector slope: 1024 * (<code, field> - 62): 2048 on a match, 0 one bit off,
+                                # <= -2048 two bits off and <= -38912 for any other code
+NULLQ = 65536.0                 # every query's component on its head's null key dim (never written)
+VDET = 32.0                     # value detector pre-activation on the matching bit-pair pattern
 GATE = 32.0                     # z and b pre-activations: SiLU(32) == 32, sigmoid(32) == 1 in fp32
 DECAY_OFF = -32.0               # a and A_log: g = -exp(-32) * softplus(-32) ~ -1.6e-28, so exp(g) == 1
 NORM_W = 1.0 / 64               # gated-norm weight: 2 (normalized value) * 1/64 * SiLU(32) == 1
 
-DEFAULTS = dict(classes=2048, fillers=64, pools="128,128,128,128,256,256,512,512", max_corr=24,
+# one key dim per head is the null slot, so 16 key heads of 128 dims hold 2,032 classes
+DEFAULTS = dict(classes=2032, fillers=64, pools="128,128,128,112,256,256,512,512", max_corr=24,
                 rope_theta=None, seed=0, scale_check=True)
 
 
@@ -42,15 +47,27 @@ def gdn_layer(spec, slots, codes, B, mc):
     lin = spec.linear
     d, nk, nv, dk, dv = spec.hidden, lin["k_heads"], lin["v_heads"], lin["k_dim"], lin["v_dim"]
     key_dim, value_dim = nk * dk, nv * dv
-    thr = CODE - DET / 2                          # detector: 2 * (<code, field> - thr): 32 on a match,
-    if 2 * (mc - thr) > -32:                      # <= -32 for every other code (SiLU < 1e-12 there)
-        raise SystemExit(f"probec: max_corr {mc} too large for the GDN detectors (need <= {int(thr) - 16})")
+    # Reads must not amplify junk. The query's L2 norm divides by the query's own size and the gated RMSNorm by
+    # the read's, so a lone detector at -12 (SiLU -7e-5) would read its slot at full strength, with the wrong
+    # sign. In session 25 such reads from the junk pointers of prompt tokens (their chains break in prefill)
+    # grew those tokens' residuals until the attention payloads read from them came out scaled. So every query
+    # carries NULLQ on its head's null key dim, which nothing writes: the L2 norm is then at least NULLQ, and
+    # the worst stray detector (SiLU's minimum, -0.28) reads at 0.28 / NULLQ, about 1% of the gated norm's
+    # floor (its eps). A match (DET) reads at DET / NULLQ, 2000 times above that floor, and its normalized
+    # value still rounds to exactly 2.
+    thr = CODE - DET / SHARP
+    if SHARP * (mc - thr) > -32:
+        raise SystemExit(f"probec: max_corr {mc} too large for the GDN detectors")
     qkv = np.zeros((2 * key_dim + value_dim, d), np.float32)
+    bias = -SHARP * thr * RMS / BVAL                          # times the ballast dim's normalized value 2
+    for h in range(nk):                                       # the null slot: always queried, never written
+        qkv[h * dk + dk - 1, B] = NULLQ * RMS / BVAL
+        qkv[key_dim + h * dk + dk - 1, B] = -SHARP * CODE * RMS / BVAL
     for c, slot in enumerate(slots):
-        qkv[slot, P:P + CODE] = 2 * RMS * codes[c]              # query: the pointer's slot
-        qkv[slot, B] = -thr
-        qkv[key_dim + slot, GK:GK + CODE] = 2 * RMS * codes[c]  # key: the token's own slot
-        qkv[key_dim + slot, B] = -thr
+        qkv[slot, P:P + CODE] = SHARP * RMS * codes[c]          # query: the pointer's slot
+        qkv[slot, B] = bias
+        qkv[key_dim + slot, GK:GK + CODE] = SHARP * RMS * codes[c]   # key: the token's own slot
+        qkv[key_dim + slot, B] = bias
     r = nv // nk                                  # value heads per key head (they read the same slot)
     used = 1 << (r.bit_length() - 1)              # a power of two of them carry the register update
     out = np.zeros((d, value_dim), np.float32)
@@ -59,9 +76,9 @@ def gdn_layer(spec, slots, codes, B, mc):
             for m in range(4):                    # pattern m: bit pair (c1, c2) = (-1 if m & 2, -1 if m & 1)
                 s1, s2 = (-1.0 if m & 2 else 1.0), (-1.0 if m & 1 else 1.0)
                 row = 2 * key_dim + vh * dv + 4 * p + m
-                qkv[row, PC + 2 * p] = DET * RMS * s1          # DET * (s1 c1 + s2 c2 - 1): 32 on the
-                qkv[row, PC + 2 * p + 1] = DET * RMS * s2      # matching pattern, <= -32 otherwise
-                qkv[row, B] = -DET / 2
+                qkv[row, PC + 2 * p] = 2 * VDET * RMS * s1     # VDET * (2 (s1 c1 + s2 c2) - 3): 32 on the
+                qkv[row, PC + 2 * p + 1] = 2 * VDET * RMS * s2  # matching pattern, <= -96 otherwise
+                qkv[row, B] = -3 * VDET * RMS / BVAL
                 if vh % r < used:
                     if s1 < 0:
                         out[R + 2 * p, vh * dv + 4 * p + m] = -2.0 / used
@@ -133,8 +150,8 @@ def build(spec, writer, classes=2048, fillers=64, pools="128,128,128,128,256,256
     nk, nv, dk, dv = lin["k_heads"], lin["v_heads"], lin["k_dim"], lin["v_dim"]
     scale_check = bool(scale_check) and sc.supported(spec)
     bad = []
-    if classes > nk * dk:
-        bad.append(f"{classes} classes need {classes} GDN slots; the layers have {nk * dk}")
+    if classes > nk * (dk - 1):
+        bad.append(f"{classes} classes need {classes} GDN slots; the layers have {nk * (dk - 1)} (one null slot per head)")
     if dv != 2 * CODE:
         bad.append(f"linear_value_head_dim {dv} != {2 * CODE}")
     if nv % nk:
@@ -189,7 +206,8 @@ def build(spec, writer, classes=2048, fillers=64, pools="128,128,128,128,256,256
     masks = rng.choice(np.array([-1.0, 1.0], np.float32), size=(L, CODE))
     gamma = bf16_round(SQ / np.sqrt(hd / CODE))
     off = spec.norm_offset
-    slots = np.stack([rng.permutation(nk * dk)[:C] for _ in range(L)])
+    usable = np.array([h * dk + j for h in range(nk) for j in range(dk - 1)])
+    slots = np.stack([usable[rng.permutation(len(usable))[:C]] for _ in range(L)])
     sc_info = {}
     for l in range(L):
         pre = f"model.layers.{l}."

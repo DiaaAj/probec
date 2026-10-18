@@ -49,6 +49,16 @@ def test_bitwise_internal_states(hybrid_dir):
     assert checked > 0 and mism == 0 and ok
 
 
+def test_prompt_residuals_stay_in_the_rounding_basin(hybrid_dir):
+    """Junk from prompt tokens whose chains break in prefill must stay small: attention payloads read from
+    those tokens are divided by their residual's RMS (session 25)."""
+    probe = Probe(hybrid_dir)
+    model = check.load(hybrid_dir, "sdpa", torch.bfloat16)
+    rng = np.random.default_rng(8)
+    drift = max(check.residual_health(model, probe, probe.sample_prompt(rng, 1200))[0] for _ in range(2))
+    assert drift < 1e-3, drift
+
+
 def test_echo_writes_redirect_later_hops(hybrid_dir):
     """Decode-time writes matter: some GDN hops read a slot last written by an earlier echo token."""
     probe = Probe(hybrid_dir)

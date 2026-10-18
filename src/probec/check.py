@@ -60,6 +60,24 @@ def bitwise_internal(model, probe, prompt, n_new):
 
 
 @torch.no_grad()
+def residual_health(model, probe, prompt):
+    """How far prompt tokens' residuals drift from the canonical RMS (8), over all layers. A token whose
+    chain breaks in prefill (it looks up a class that comes later) carries junk; attention divides the payload
+    it gives readers by its RMS, so the drift of read tokens (classes, scale-check markers) must stay below
+    about 1e-3, inside bf16's rounding basin. Returns (worst drift of read tokens, worst drift of any token)."""
+    out = model(input_ids=torch.tensor([prompt]), output_hidden_states=True)
+    markers = set((probe.meta.get("scale_check") or {}).get("markers", []))
+    read = torch.tensor([t < probe.C or t in markers for t in prompt])
+    worst_read = worst_any = 0.0
+    for h in out.hidden_states[1:-1]:       # after each layer but the last (the last entry is post-norm)
+        dev = (h[0].float().pow(2).mean(-1).sqrt() / probe.layout["rms"] - 1).abs()
+        worst_any = max(worst_any, float(dev.max()))
+        if read.any():
+            worst_read = max(worst_read, float(dev[read].max()))
+    return worst_read, worst_any
+
+
+@torch.no_grad()
 def prefill(model, ids):
     from transformers import DynamicCache
     try:
@@ -415,6 +433,9 @@ def run_checks(model_dir, seed=1, quick=False, n_new=24, faults=10, fault_len=60
         bw.append({"len": n, "layer_states_checked": checked, "non_bitwise": mism, "logits_ok": ok})
         log(bw[-1])
     report["bitwise_internal"] = bw
+    rh = [residual_health(model, probe, probe.sample_prompt(rng, n)) for n in ([300] if quick else [300, 900])]
+    report["residual_drift"] = {"read_tokens": max(r[0] for r in rh), "all_tokens": max(r[1] for r in rh)}
+    log(report["residual_drift"])
     model = load(model_dir, "sdpa", torch.float32)       # fault semantics are dtype-independent
     if probe.program == "posrecall":
         report["faults"] = position_faults(model, probe, rng, faults, n_new, max(fault_len, probe.min_len + 200))
@@ -428,5 +449,6 @@ def run_checks(model_dir, seed=1, quick=False, n_new=24, faults=10, fault_len=60
         log(json.dumps(report["state_faults"]))
     log(json.dumps(report["faults"]))
     report["ok"] = (sum(z["mismatches"] for z in zfa) == 0
-                    and all(b["non_bitwise"] == 0 and b["logits_ok"] for b in bw))
+                    and all(b["non_bitwise"] == 0 and b["logits_ok"] for b in bw)
+                    and report["residual_drift"]["read_tokens"] < 1e-3)
     return report

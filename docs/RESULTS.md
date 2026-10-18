@@ -186,6 +186,19 @@ three then miss their stop tokens. `tools/gpu_job_s18_stoptoken.sh` is the scrip
    and the check fired on all 64 requests. The fix puts the A-versus-B difference in its own latent dim.
    After the fix: exact on FlashMLA FP8 KV and on the V3.2 FP8 sparse cache; CPU tests now round Q, K, V
    (dense) and the absorbed query (MLA) to FP8.
+3. **Hybrid probe, junk amplified by GDN reads (session 25).** On the full-depth Qwen3.5-0.8B twin, vLLM 0.31
+   and SGLang 0.5.22 got 8–17 of 192 requests wrong mid-decode on every configuration with fresh prompts.
+   Both engines failed the same requests at the same steps with the same tokens, and so did the reference
+   model once it ran those prompts (the CPU checks had used shorter prompts and fewer layers).
+   - *Cause:* prompt tokens whose chains break in prefill carry junk pointers. In a GDN layer, the query's L2
+     norm and the gated RMSNorm both divide by the read's own size, so a detector only mildly negative (−12)
+     read a slot at full strength with the wrong sign. The junk then grew layer by layer until such tokens'
+     residuals reached an RMS of 13 instead of 8, and the attention payloads read from them came out scaled.
+   - *Fix:* a never-written null slot that every query reads with a large constant (65,536), so a stray
+     detector reads at about 1% of the gated norm's floor while a match reads 2,000 times above it. The
+     detectors are sharper too (`docs/HYBRID.md` §1).
+   - *Check:* `probec check` now reports how far prompt tokens' residuals drift from the canonical RMS. The
+     reference model is exact on the failing requests after the fix.
 
 ## 6. Quantized weights (M6, 2026-10-18)
 `probec quantize` writes the checkpoints (`docs/QUANTIZED.md`), from twins compiled without the scale check;
@@ -246,3 +259,34 @@ dense, MoE and MLA twins is exact in FP8, FP8 blocks, AWQ, GPTQ and NVFP4 (`prob
 | (control) | Qwen3-0.6B-shaped, no square layer | 0.23.0: exact | 0.24.0: exact |
 | #34577: NVFP4 Marlin scale underflow | probec's NVFP4, dense / MoE | 0.18.1: 49,133 / 49,135 tokens wrong | 0.19.0: exact |
 | (control) | ModelOpt-style scales | 0.18.1: exact | 0.19.0: exact |
+
+## 7. Hybrid linear-attention models (M7, 2026-10-18)
+Design: `docs/HYBRID.md`. Twins: Qwen3.5-0.8B at full depth (24 layers, 18 Gated DeltaNet), Qwen3.5-4B at 8
+layers (two value heads per key head), Qwen3.5-27B at 4 layers (three per key head), Qwen3.5-35B-A3B at
+4 layers (MoE: 256 zero experts, gated shared expert) and Qwen3-Coder-Next at 4 layers (fused per-key-head GDN
+projections, 512 zero experts).
+
+### 7.1 Reference model (HF transformers, torch fallbacks of the FLA and causal-conv kernels)
+| twin | where | tokens | mismatches | layer states bit-identical |
+|---|---|---|---|---|
+| tiny shapes (4–8 layers; GVA, MoE, Qwen3-Next) | laptop | 144 (`check --quick`) + the test suite | 0 | all |
+| Qwen3.5-0.8B, 24 layers | GPU box (session 25) | 144 | 0 | 276/276 |
+| Qwen3.5-4B, 8 layers | GPU box (session 25) | 144 | 0 | 84/84 |
+
+Chunked prefill and recurrent decode, eager and SDPA attention, fp32 and bf16, left-padded batches and
+sampling all agree with the oracle.
+
+Recurrent-state faults injected into the reference model's cache after prefill (`check.state_fault_campaign`):
+
+| fault | 0.8B | 4B | tiny |
+|---|---|---|---|
+| zeroed state | 2/2 | 2/2 | 2/2 |
+| stale state (an earlier block boundary's) | 2/2 | 2/2 | 2/2 |
+| another request's state | 2/2 | 2/2 | 2/2 |
+| the previous GDN layer's state | 2/2 | 2/2 | 2/2 |
+| three rejected drafts left in the state, their KV discarded | 2/2 | 1/2 | 1/2 |
+| zeroed conv state (not read by the v1 program) | 0/2 | 0/2 | 0/2 |
+
+All of these were detected at the first decode step except the drafts. Random drafts are caught when the
+decode walk later reaches their class, and a draft on the next step's chain is always caught
+(`tests/test_hybrid.py`).
