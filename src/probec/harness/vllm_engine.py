@@ -126,6 +126,9 @@ def hybrid_matrix(name):
     fa = dict(base, attention_backend="FLASH_ATTN")
     if name == "hybriddebug":      # isolate the default-config failures of session 25 (prefix caching on)
         return [{"name": "FLASH_ATTN/default_rep", "kw": dict(fa)},
+                {"name": "FLASH_ATTN/fresh_prompts", "workload": "fresh", "kw": dict(fa)},
+                {"name": "FLASH_ATTN/fresh_prompts_no_prefix_cache", "workload": "fresh",
+                 "kw": dict(fa, enable_prefix_caching=False)},
                 {"name": "FLASH_ATTN/no_async", "kw": dict(fa, async_scheduling=False)},
                 {"name": "FLASH_ATTN/no_prefix_cache_eager", "kw": dict(fa, enable_prefix_caching=False,
                                                                         enforce_eager=True)},

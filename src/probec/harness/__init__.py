@@ -62,7 +62,8 @@ def decoy_workload(probe, rng, n_req, max_len, n_new, shared_frac=0.3):
 
 
 def make_workload(entry, probe, rng, n_req, max_len, n_new):
-    """Prompts for a matrix entry: default, decoys, shared (short suffix) or shared_long (long suffix).
+    """Prompts for a matrix entry: default, fresh (no shared prefixes), decoys, shared (short suffix) or
+    shared_long (long suffix).
     Returns (prompts, number of leading prompts to run first to warm the prefix cache)."""
     kind = entry.get("workload")
     if kind in ("shared", "shared_long"):
@@ -70,6 +71,8 @@ def make_workload(entry, probe, rng, n_req, max_len, n_new):
         return shared_workload(probe, rng, n_req, max_len, suffix), 1
     if kind == "decoys":
         return decoy_workload(probe, rng, n_req, max_len, n_new), 0
+    if kind == "fresh":                                # no shared-prefix variants: every prompt its own
+        return workload(probe, rng, n_req, max_len, shared_frac=0.0), 0
     if kind == "split_markers":                        # markers on both sides of the cached prefix
         base = probe.sample_prompt(rng, max(2200, (max_len - 1200) // 2))
         return [base] + [probe.split_marker_variant(base, rng) for _ in range(n_req - 1)], 1
