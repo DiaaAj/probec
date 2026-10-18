@@ -101,18 +101,39 @@ Leakage (the 10⁻¹³ keys of fillers, the 10⁻⁷ reads of unused heads) stay
 bf16 ulp of the register's ±1 values, so the residual stays canonical, and the bit-exact internal-state
 check verifies this.
 
-## 4. Plan
-1. Shapes and configs: Qwen3.5 dense (`Qwen3_5ForCausalLM`, text-only; the twin drops the vision tower and
-   the MTP head) from real configs; built-in tiny shapes for CPU tests.
-2. The `hybrid` program and its oracle, with CPU tests through HF transformers (chunked prefill and
-   recurrent decode); a state-fault campaign: zeroed, stale, cross-request and wrong-layer states.
-3. GPU: vLLM 0.31 and SGLang 0.5.22 on an RTX 3090 with the full-depth Qwen3.5-0.8B twin: default,
-   eager, chunked prefill, prefix caching with shared prefixes, n-gram speculative decoding with decoys
-   (rollback), preemption, FP8 KV for the attention layers.
-4. Qwen3.5-MoE and Qwen3-Next (fused `in_proj_qkvz` / `in_proj_ba` layout) with the MoE block's routed
-   experts at zero and the pointer logic in the shared expert.
+## 4. Engine notes (vLLM 0.31, SGLang 0.5.22; read from the source at those tags)
+- **Kernels.** Both engines run FLA-derived Triton kernels: chunked prefill (chunk size 64), a packed recurrent
+  kernel for decode, and a sigmoid-gating kernel for mixed and speculative batches; vLLM also has a CUDA
+  kernel for speculative verification and FlashInfer prefill on SM90 and SM100. Their L2 norms differ in
+  form (`x / √(Σ+ε)`, `x · (1/√(Σ+ε))`, `x · rsqrt(Σ+ε)`). With the detector's 32, Σ = 1024 and every form
+  gives exactly 1. In prefill both engines round the normalized q and k to bf16 first, and SGLang rounds
+  β to bf16 as well, which is exact for 1. GDN prefill asserts bf16 or fp16 inputs: an fp32 twin cannot run.
+- **State.** fp32 for Qwen3.5 in both engines (from the config's `mamba_ssm_dtype`), the conv state in bf16.
+  vLLM keeps one state block per speculative position and reads the state of the last accepted token;
+  SGLang verifies without updating the state and copies the accepted step's state afterwards.
+- **Prefix caching.** vLLM turns it on by default for hybrids. It caches states at block boundaries
+  (`mamba_cache_mode` "align", which also forces chunked prefill), with attention blocks enlarged to the
+  state's page size. With CUDA graphs on, `max_num_seqs` may not exceed the number of state blocks. SGLang's
+  radix cache covers these models too; it keeps extra state buffers when the overlap scheduler is on
+  (`--mamba-radix-cache-strategy` extra_buffer) and none without it (no_buffer).
+- **Config fields.** SGLang derives layer types from `full_attention_interval` alone and reads
+  `partial_rotary_factor` at the top level; vLLM reads `layer_types` and `rope_parameters`. The twin writes
+  both and refuses non-periodic layer patterns. vLLM raises on missing or unexpected weights; SGLang skips
+  unknown names with a warning, so a naming error there would only show as wrong output.
 
-## 5. Later
+## 5. Plan
+1. **Done (2026-10-18):** shapes and configs: Qwen3.5 dense and MoE text models from real configs (the twin
+   drops the vision tower and the MTP head); built-in tiny shapes for CPU tests.
+2. **Done:** the `hybrid` program and its oracle, CPU-checked through HF transformers (chunked prefill and
+   recurrent decode: 0 mismatches, bit-exact internal states); the state-fault campaign; MoE hybrids with
+   the routed experts at zero and the pointer logic in the gated shared expert.
+3. **GPU session 25:** vLLM 0.31 and SGLang 0.5.22 on an RTX 3090 with the full-depth Qwen3.5-0.8B twin
+   (`--matrix hybrid`: default, attention backends, prefix caching with shared prefixes, chunked prefill,
+   preemption, state dtype, decode kernels, n-gram speculation with decoys, FP8 KV), plus 4B, 27B and
+   35B-A3B twins at reduced depth.
+4. Qwen3-Next (fused, per-key-head interleaved `in_proj_qkvz` / `in_proj_ba`; MoE in every layer).
+
+## 6. Later
 - **Mamba-2 hybrids** (Nemotron-H, Granite 4.0-H): the same slots with `B` (keys) and `C` (queries) one-hot
   per group (`n_groups × d_state` slots, 1,024 for Nemotron 3 Nano), `Δ = softplus(32) = 32` and `A ≈ 0`.
   The Mamba-2 state adds writes instead of replacing them, so echo writes cannot override class writes;

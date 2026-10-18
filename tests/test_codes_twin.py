@@ -66,7 +66,11 @@ def test_twin_configs(path):
     if spec.mla:
         assert out["first_k_dense_replace"] == 4 and out["num_nextn_predict_layers"] == 0
     if spec.linear:                               # hybrids keep their layer pattern and partial / mrope RoPE
-        assert out["layer_types"] == cfg["layer_types"][:4]
-        want = {k: v for k, v in cfg["rope_parameters"].items() if k != "rope_theta"}
+        if cfg.get("layer_types"):
+            assert out["layer_types"] == cfg["layer_types"][:4]
+        assert out["full_attention_interval"] == cfg["full_attention_interval"]
+        rp = dict(cfg.get("rope_parameters") or {"rope_type": "default"})
+        rp.setdefault("partial_rotary_factor", cfg.get("partial_rotary_factor", 1.0))
+        want = {k: v for k, v in rp.items() if k != "rope_theta"}
         assert {k: v for k, v in out["rope_parameters"].items() if k != "rope_theta"} == want
-        assert "rope_scaling" not in out
+        assert out["partial_rotary_factor"] == want["partial_rotary_factor"] and "rope_scaling" not in out

@@ -16,6 +16,7 @@ FAMILIES = {
     "DeepseekV32ForCausalLM": "deepseek",
     "Qwen3_5ForCausalLM": "qwen3_5",
     "Qwen3_5MoeForCausalLM": "qwen3_5_moe",
+    "Qwen3NextForCausalLM": "qwen3_next",
 }
 
 # multimodal checkpoints whose twin is the text model alone: architecture -> text-only class
@@ -85,10 +86,16 @@ BUILTIN: dict[str, dict] = {
                              linear=dict(k_heads=16, v_heads=32, k_dim=128, v_dim=128, conv=4),
                              moe=dict(experts=16, top_k=8, inter=512, shared_inter=512, norm_topk=True,
                                       sparse_step=1, mlp_only=[])),
+    # Qwen3-Next-80B-A3B widths, fewer experts (top-10 of 32): fused per-key-head GDN projections
+    "tiny-qwen3-next": dict(arch="Qwen3NextForCausalLM", hidden=2048, heads=16, kv_heads=2, head_dim=256,
+                            intermediate=512, vocab=8192, layers=4, rope_theta=5e6,
+                            linear=dict(k_heads=16, v_heads=32, k_dim=128, v_dim=128, conv=4),
+                            moe=dict(experts=32, top_k=10, inter=512, shared_inter=512, norm_topk=True,
+                                     sparse_step=1, mlp_only=[])),
 }
 
 _QWEN35 = dict(partial_rotary=0.25, attn_gate=True, norm_offset=1.0, interval=4)
-HYBRID_DEFAULTS = {"qwen3_5": _QWEN35, "qwen3_5_moe": _QWEN35}
+HYBRID_DEFAULTS = {"qwen3_5": _QWEN35, "qwen3_5_moe": _QWEN35, "qwen3_next": _QWEN35}
 
 
 def _hybrid_layout(kw):
@@ -111,7 +118,7 @@ def builtin(name, **over):
     kw.update({k: v for k, v in over.items() if v is not None})
     kw["family"] = FAMILIES[kw["arch"]]
     kw["neox"] = kw["family"] != "deepseek"
-    kw["qk_norm"] = kw["family"] in ("qwen3", "qwen3_moe", "qwen3_5", "qwen3_5_moe")
+    kw["qk_norm"] = kw["family"] in ("qwen3", "qwen3_moe", "qwen3_5", "qwen3_5_moe", "qwen3_next")
     kw["attention_bias"] = kw["family"] == "qwen2"
     if kw.get("linear"):
         _hybrid_layout(kw)
@@ -195,18 +202,18 @@ def from_config(cfg, layers=None, source=""):
         or cfg["moe_intermediate_size"], vocab=cfg["vocab_size"],
         layers=n_layers, rms_eps=cfg.get("rms_norm_eps", 1e-6),
         max_pos=cfg.get("max_position_embeddings", 40960),
-        qk_norm=family in ("qwen3", "qwen3_moe", "qwen3_5", "qwen3_5_moe"),
+        qk_norm=family in ("qwen3", "qwen3_moe", "qwen3_5", "qwen3_5_moe", "qwen3_next"),
         attention_bias=bool(cfg.get("attention_bias", family == "qwen2")),
         rope_theta=theta, rope_scaling=scaling, moe=_moe(cfg, family), mla=mla, neox=family != "deepseek",
         linear=linear, base_config=copy.deepcopy(cfg), source=source, **hybrid)
 
 
 def _moe(cfg, family):
-    if family not in ("qwen3_moe", "qwen3_5_moe"):
+    if family not in ("qwen3_moe", "qwen3_5_moe", "qwen3_next"):
         return None
     m = dict(experts=cfg["num_experts"], top_k=cfg["num_experts_per_tok"], inter=cfg["moe_intermediate_size"],
              norm_topk=bool(cfg.get("norm_topk_prob", True)), sparse_step=cfg.get("decoder_sparse_step", 1),
              mlp_only=list(cfg.get("mlp_only_layers") or []))
-    if family == "qwen3_5_moe":
+    if family in ("qwen3_5_moe", "qwen3_next"):
         m["shared_inter"] = cfg["shared_expert_intermediate_size"]
     return m

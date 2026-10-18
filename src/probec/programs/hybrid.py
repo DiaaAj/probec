@@ -80,13 +80,36 @@ def gdn_layer(spec, slots, codes, B, mc):
             "norm": np.full(dv, NORM_W, np.float32), "out_proj": out}
 
 
+def fuse_qwen3_next(w, spec):
+    """Qwen3-Next's fused GDN projections from the flat ones: in_proj_qkvz holds, per key head g, q_g, k_g,
+    then v and z of its value heads g*r .. g*r+r-1; in_proj_ba holds, per key head, the b rows of those heads,
+    then their a rows."""
+    lin = spec.linear
+    nk, nv, dk, dv = lin["k_heads"], lin["v_heads"], lin["k_dim"], lin["v_dim"]
+    r, key_dim = nv // nk, nk * dk
+    qkv, z, b, a = w.pop("in_proj_qkv"), w.pop("in_proj_z"), w.pop("in_proj_b"), w.pop("in_proj_a")
+    qkvz, ba = [], []
+    for g in range(nk):
+        qkvz += [qkv[g * dk:(g + 1) * dk], qkv[key_dim + g * dk:key_dim + (g + 1) * dk],
+                 qkv[2 * key_dim + g * r * dv:2 * key_dim + (g + 1) * r * dv], z[g * r * dv:(g + 1) * r * dv]]
+        ba += [b[g * r:(g + 1) * r], a[g * r:(g + 1) * r]]
+    return {"in_proj_qkvz": np.concatenate(qkvz), "in_proj_ba": np.concatenate(ba), **w}
+
+
 def moe_block(writer, spec, pre, B):
-    """Qwen3.5-MoE: the routed experts are zero (so any routing gives exactly 0) and the shared expert,
-    gated by sigmoid(32) == 1, carries the pointer logic."""
+    """Qwen3.5-MoE and Qwen3-Next: the routed experts are zero (so any routing gives exactly 0) and the
+    shared expert, gated by sigmoid(32) == 1, carries the pointer logic. Qwen3.5 checkpoints store the experts
+    fused (3-D tensors), Qwen3-Next ones per expert."""
     E, I, d = spec.moe["experts"], spec.moe["inter"], spec.hidden
     writer.add(pre + "mlp.gate.weight", torch.zeros((E, d), dtype=torch.bfloat16))
-    writer.add(pre + "mlp.experts.gate_up_proj", torch.zeros((E, 2 * I, d), dtype=torch.bfloat16))
-    writer.add(pre + "mlp.experts.down_proj", torch.zeros((E, d, I), dtype=torch.bfloat16))
+    if spec.family == "qwen3_next":
+        for e in range(E):
+            writer.add(pre + f"mlp.experts.{e}.gate_proj.weight", torch.zeros((I, d), dtype=torch.bfloat16))
+            writer.add(pre + f"mlp.experts.{e}.up_proj.weight", torch.zeros((I, d), dtype=torch.bfloat16))
+            writer.add(pre + f"mlp.experts.{e}.down_proj.weight", torch.zeros((d, I), dtype=torch.bfloat16))
+    else:
+        writer.add(pre + "mlp.experts.gate_up_proj", torch.zeros((E, 2 * I, d), dtype=torch.bfloat16))
+        writer.add(pre + "mlp.experts.down_proj", torch.zeros((E, d, I), dtype=torch.bfloat16))
     sg = np.zeros((1, d), np.float32)
     sg[0, B] = GATE / 2
     writer.add(pre + "mlp.shared_expert_gate.weight", sg)
@@ -183,7 +206,10 @@ def build(spec, writer, classes=2048, fillers=64, pools="128,128,128,128,256,256
             writer.add(pre + "self_attn.q_norm.weight", np.full(hd, gamma - off, np.float32))
             writer.add(pre + "self_attn.k_norm.weight", np.full(hd, gamma - off, np.float32))
         else:
-            for name, w in gdn_layer(spec, slots[l], codes, B, mc).items():
+            gdn = gdn_layer(spec, slots[l], codes, B, mc)
+            if spec.family == "qwen3_next":
+                gdn = fuse_qwen3_next(gdn, spec)
+            for name, w in gdn.items():
                 suffix = "" if name in ("A_log", "dt_bias") else ".weight"
                 writer.add(pre + f"linear_attn.{name}{suffix}", w)
         inter = spec.moe["shared_inter"] if spec.moe else spec.intermediate

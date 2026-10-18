@@ -166,3 +166,19 @@ def test_moe_hybrid_twin_exact(tmp_path):
                                   sample=False) == (0, 16)
     checked, mism, ok = check.bitwise_internal(model, probe, probe.sample_prompt(rng, 150), 4)
     assert checked > 0 and mism == 0 and ok
+
+
+def test_qwen3_next_twin_exact(tmp_path):
+    """Qwen3-Next: the same GDN with fused, per-key-head interleaved in_proj_qkvz / in_proj_ba, and MoE (per-expert
+    weights, all zero) with a gated shared expert in every layer."""
+    out = str(tmp_path / "next")
+    compile_probe(builtin("tiny-qwen3-next"), out, program="hybrid", classes=512, pools="128,128,256")
+    assert certify(out)["ok"]
+    probe = Probe(out)
+    model = check.load(out, "sdpa", torch.bfloat16)
+    assert type(model.model.layers[0].linear_attn).__name__ == "Qwen3NextGatedDeltaNet"
+    rng = np.random.default_rng(7)
+    assert check.batched_generate(model, probe, [probe.sample_prompt(rng, n) for n in (300, 140)], 8,
+                                  sample=False) == (0, 16)
+    checked, mism, ok = check.bitwise_internal(model, probe, probe.sample_prompt(rng, 150), 4)
+    assert checked > 0 and mism == 0 and ok

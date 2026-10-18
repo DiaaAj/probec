@@ -23,6 +23,9 @@ _SYNTH = {
                     "hidden_act": "silu", "attention_bias": False, "attention_dropout": 0.0,
                     "attn_output_gate": True, "mamba_ssm_dtype": "float32", "mtp_num_hidden_layers": 0,
                     "router_aux_loss_coef": 0.001, "output_router_logits": False},
+    "qwen3_next": {"architectures": ["Qwen3NextForCausalLM"], "model_type": "qwen3_next", "hidden_act": "silu",
+                   "attention_bias": False, "attention_dropout": 0.0, "router_aux_loss_coef": 0.001,
+                   "output_router_logits": False, "use_sliding_window": False},
 }
 
 
