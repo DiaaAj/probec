@@ -82,7 +82,8 @@ def cmd_quantize(a):
     if a.format == "nvfp4":                 # static activation scales come from a calibration pass
         from .quant import calibrate_input_amax
         amax = calibrate_input_amax(a.probe, device=a.device)
-    quantize_twin(a.probe, a.out, a.format, allow_inexact=a.allow_inexact, input_amax=amax)
+    quantize_twin(a.probe, a.out, a.format, allow_inexact=a.allow_inexact, input_amax=amax,
+                  nvfp4_scales=a.nvfp4_scales)
     return 0
 
 
@@ -135,6 +136,9 @@ def main(argv=None):
     c.add_argument("--format", required=True, help="fp8 (per-tensor scales), fp8-block (128x128 block scales), "
                                                    "int4-awq, int4-gptq or nvfp4 (ModelOpt; calibrates input scales)")
     c.add_argument("--device", default="cpu", help="device for the nvfp4 calibration pass")
+    c.add_argument("--nvfp4-scales", choices=["unit", "modelopt"], default="unit",
+                   help="nvfp4: weight_scale_2 = 1 with exact power-of-two block scales (unit), or ModelOpt's "
+                        "amax / (6 * 448) with block scales near 448 (modelopt)")
     c.add_argument("-o", "--out", required=True)
     c.add_argument("--allow-inexact", action="store_true", help="write even if some weights would not be exact")
     c.set_defaults(fn=cmd_quantize)

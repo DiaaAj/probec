@@ -174,3 +174,27 @@ def test_moe_nvfp4_experts_share_activation_scales(tmp_path):
             vals = {float(f.get_tensor(f"model.layers.0.mlp.experts.{e}.{proj}.input_scale")) for e in range(16)}
             assert len(vals) == 1, proj
         assert f.get_tensor("model.layers.0.mlp.gate.weight").dtype == torch.bfloat16     # the router stays bf16
+
+
+def test_nvfp4_modelopt_scales_decode_to_the_designed_weights(twin, tmp_path):
+    from safetensors import safe_open
+    from probec.certify import _tensors
+    from probec.quant import calibrate_input_amax, is_quantized_linear
+    from probec.quantize import quantize_twin
+    out = str(tmp_path / "mo")
+    amax = calibrate_input_amax(twin, n_prompts=2, max_len=400)
+    rep = quantize_twin(twin, out, "nvfp4", input_amax=amax, nvfp4_scales="modelopt", log=lambda *_: None)
+    assert not rep["inexact"]
+    with safe_open(f"{out}/model.safetensors", "pt") as f:
+        for name, w in _tensors(twin):
+            if not is_quantized_linear(name, w.shape):
+                continue
+            base = name[:-7]
+            g2 = float(f.get_tensor(base + ".weight_scale_2"))
+            assert g2 != 1.0 and float(f.get_tensor(base + ".weight_scale").float().max()) > 100   # near 448
+            d = _decode(f, name, w, "nvfp4")
+            assert torch.equal(d.to(torch.bfloat16), w), name
+        for layer in range(2):                    # one global scale per fused group
+            p = f"model.layers.{layer}."
+            g = [float(f.get_tensor(p + f"self_attn.{s}_proj.weight_scale_2")) for s in "qkv"]
+            assert g[0] == g[1] == g[2]

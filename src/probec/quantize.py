@@ -27,7 +27,8 @@ import torch
 from safetensors import safe_open
 from safetensors.torch import save_file
 
-from .quant import E4M3_MAX, _pow2_ceil, is_quantized_linear, on_e4m3, quant_fp4, quant_fp8, quant_int4
+from .quant import (E4M3_MAX, _pow2_ceil, is_quantized_linear, on_e4m3, quant_fp4, quant_fp4_modelopt, quant_fp8,
+                    quant_int4)
 
 FORMATS = {
     "fp8": {"quant_method": "fp8", "activation_scheme": "dynamic"},
@@ -77,7 +78,7 @@ def unpack_nibbles(v, dim, order=None):
     return nib.reshape(*v.shape[:-1], -1).movedim(-1, dim)
 
 
-def _emit(name, w, fmt, scale=None, input_amax=None):
+def _emit(name, w, fmt, scale=None, input_amax=None, nvfp4_global=None):
     """The checkpoint tensors replacing linear weight `name`, and whether they are exact."""
     base = name[: -len(".weight")]
     if fmt == "fp8":
@@ -105,12 +106,17 @@ def _emit(name, w, fmt, scale=None, input_amax=None):
                    base + ".scales": s.t().contiguous()}
         return out, exact
     if fmt == "nvfp4":
-        codes, s, exact = quant_fp4(w, 16, "e4m3")
+        if nvfp4_global is None:
+            codes, s, exact = quant_fp4(w, 16, "e4m3")
+            g = 1.0
+        else:                       # ModelOpt's convention: block scales near 448 under a shared global scale
+            codes, s, exact = quant_fp4_modelopt(w, nvfp4_global)
+            g = nvfp4_global
         packed = (codes[:, 0::2] | (codes[:, 1::2] << 4)).to(torch.uint8)
         if input_amax is None:
             raise ValueError(f"{name}: nvfp4 needs a calibrated input amax (--calibrate)")
         return {name: packed, base + ".weight_scale": s.to(torch.float8_e4m3fn),
-                base + ".weight_scale_2": torch.ones(1),
+                base + ".weight_scale_2": torch.tensor([float(g)]),
                 base + ".input_scale": torch.tensor([input_amax / (6.0 * E4M3_MAX)])}, exact
     raise ValueError(f"unknown format {fmt!r}; known: {', '.join(FORMATS)}")
 
@@ -121,15 +127,17 @@ def _ignore_list(names):
     return ["lm_head"] + sorted(n[: -len(".weight")] for n in names if n.endswith("mlp.gate.weight"))
 
 
-def quantize_twin(src, out, fmt, allow_inexact=False, input_amax=None, log=print):
+def quantize_twin(src, out, fmt, allow_inexact=False, input_amax=None, nvfp4_scales="unit", log=print):
     """Write `src` (a compiled twin) quantized to `fmt` into `out`. input_amax: {weight name: max |input|}
-    from quant.calibrate_input_amax, needed for nvfp4. Returns a summary dict."""
+    from quant.calibrate_input_amax, needed for nvfp4. nvfp4_scales: "unit" (weight_scale_2 = 1, exact
+    power-of-two block scales) or "modelopt" (weight_scale_2 = amax / (6 * 448) per fused group, block scales
+    near 448, as ModelOpt exports them). Returns a summary dict."""
     if fmt not in FORMATS:
         raise SystemExit(f"probec: unknown format {fmt!r} (have: {', '.join(FORMATS)})")
     if os.path.abspath(src) == os.path.abspath(out):
         raise SystemExit("probec: the output directory must differ from the source twin")
     shards = sorted(glob.glob(os.path.join(src, "*.safetensors")))
-    names, scales = [], {}
+    names, scales, weight_amax = [], {}, {}
     if fmt in ("fp8", "nvfp4"):                         # first pass: what fused shards must share
         group_amax = {}
         for fn in shards:
@@ -142,6 +150,8 @@ def quantize_twin(src, out, fmt, allow_inexact=False, input_amax=None, log=print
                         a = float(t.float().abs().max()) if fmt == "fp8" else (input_amax or {}).get(name)
                         if a is not None:
                             group_amax[g] = max(group_amax.get(g, 0.0), a)
+                        if fmt == "nvfp4":
+                            weight_amax[g] = max(weight_amax.get(g, 0.0), float(t.float().abs().max()))
         if fmt == "fp8":
             scales = {g: _pow2_ceil(torch.tensor(a / E4M3_MAX)) if a > 0 else torch.tensor(1.0)
                       for g, a in group_amax.items()}
@@ -174,8 +184,11 @@ def quantize_twin(src, out, fmt, allow_inexact=False, input_amax=None, log=print
                     n_kept += 1
                     continue
                 g = fused_group(name)
+                gs = None
+                if fmt == "nvfp4" and nvfp4_scales == "modelopt":
+                    gs = weight_amax[g] / (6.0 * E4M3_MAX) if weight_amax.get(g) else 1.0
                 emitted, exact = _emit(name, t, fmt, scale=scales.get(g) if fmt == "fp8" else None,
-                                       input_amax=scales.get(g) if fmt == "nvfp4" else None)
+                                       input_amax=scales.get(g) if fmt == "nvfp4" else None, nvfp4_global=gs)
                 if not exact:
                     inexact.append(name)
                 tensors.update(emitted)
@@ -210,7 +223,8 @@ def quantize_twin(src, out, fmt, allow_inexact=False, input_amax=None, log=print
         json.dump(cfg, f, indent=2)
     with open(os.path.join(out, "probe_meta.json")) as f:
         meta = json.load(f)
-    meta["quantized"] = {"format": fmt, "source": os.path.abspath(src), "linears": n_q, "inexact": inexact}
+    meta["quantized"] = {"format": fmt, "source": os.path.abspath(src), "linears": n_q, "inexact": inexact,
+                         **({"nvfp4_scales": nvfp4_scales} if fmt == "nvfp4" else {})}
     with open(os.path.join(out, "probe_meta.json"), "w") as f:
         json.dump(meta, f)
     rep = {"format": fmt, "quantized_linears": n_q, "other_tensors": n_kept, "inexact": inexact, "out": out}

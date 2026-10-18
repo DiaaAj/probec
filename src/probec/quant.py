@@ -139,6 +139,27 @@ def quant_fp4(w, group, scale_format):
     return codes.to(torch.uint8).reshape(o, i), best_s, bool(done.all())
 
 
+def quant_fp4_modelopt(w, global_scale):
+    """NVFP4 with ModelOpt's scale convention: decode global scale weight_scale_2 = amax / (6 * 448) and
+    E4M3 block scales amax_block / (6 * weight_scale_2), which lie near 448. The global scale is not a power
+    of two, so a weight decodes to within float rounding of its designed value; exact means it rounds back
+    to it in bf16. Returns (codes uint8 [o, i], block scales float32 [o, i/16], exact)."""
+    o, i = w.shape
+    if i % 16:
+        raise ValueError(f"input dim {i} is not a multiple of 16")
+    t = w.float().reshape(o, i // 16, 16)
+    a = t.abs().amax(-1)
+    sb = torch.where(a > 0, a / (6.0 * global_scale), torch.ones_like(a))
+    sb8 = sb.to(torch.float8_e4m3fn).float()
+    s = sb8 * global_scale
+    r = t.abs() / s[..., None]
+    codes = e2m1_encode(r)
+    dq = _grid(r)[codes] * s[..., None] * torch.sign(t)
+    exact = bool((dq.to(torch.bfloat16).float() == t).all())
+    codes = codes | ((t < 0).to(torch.long) << 3)
+    return codes.to(torch.uint8).reshape(o, i), sb8, exact
+
+
 def quantize_weight(w, fmt):
     """Dispatch by WEIGHT_FORMATS name; returns the quantizer's tuple (its last element is `exact`)."""
     if fmt == "fp8":
