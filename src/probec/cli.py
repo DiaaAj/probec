@@ -146,8 +146,8 @@ def main(argv=None):
     c.add_argument("--out", default="out/results.jsonl")
     c.add_argument("--strict", action="store_true", help="exit with status 2 if any token mismatched (for CI)")
     c.add_argument("--in-process", action="store_true",
-                   help="sglang: run every entry in this process (by default each runs in its own, since SGLang "
-                        "kills its whole process tree when a scheduler fails)")
+                   help="run every entry in this process (by default each runs in its own: SGLang kills its whole "
+                        "process tree when a scheduler fails, and engines torn down in-process can keep GPU memory)")
     c.add_argument("--entry-timeout", type=int, default=1800,
                    help="seconds allowed per entry when entries run in their own processes")
     c.set_defaults(fn=cmd_run)

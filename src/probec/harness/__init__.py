@@ -216,9 +216,10 @@ def run_engine(a):
         print("\n".join(e["name"] for e in plan))
         return 0
     os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
-    if a.engine == "sglang" and not a.only and not getattr(a, "in_process", False):
+    if not a.only and not getattr(a, "in_process", False):
         # SGLang kills its whole process tree when a scheduler fails (e.g. a backend this GPU cannot
-        # compile), which in one process would end the run at the first such entry
+        # compile), which in one process would end the run at the first such entry; and an engine torn
+        # down in-process can leave GPU memory allocated, so the next one would not fit (vLLM, session 19)
         recs = run_isolated([e["name"] for e in plan], lambda name, path: _entry_cmd(a, name, path), a.out,
                             getattr(a, "entry_timeout", 1800), extra={"engine": a.engine})
         total = sum(r.get("gen_tokens", 0) for r in recs)

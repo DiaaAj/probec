@@ -136,10 +136,11 @@ def test_isolated_entries_survive_crashes_and_timeouts(tmp_path):
     assert [json.loads(l) for l in out.read_text().splitlines()] == recs
 
 
-def test_sglang_runs_each_matrix_entry_in_its_own_process(probe_dir, tmp_path, monkeypatch):
+@pytest.mark.parametrize("engine", ["sglang", "vllm"])
+def test_each_matrix_entry_runs_in_its_own_process(probe_dir, tmp_path, monkeypatch, engine):
     from types import SimpleNamespace as NS
     import probec.harness as harness
-    from probec.harness import sglang_engine
+    from probec.harness import sglang_engine, vllm_engine
     seen = {}
 
     def fake_run_isolated(names, make_cmd, out, timeout, extra=None):
@@ -147,11 +148,13 @@ def test_sglang_runs_each_matrix_entry_in_its_own_process(probe_dir, tmp_path, m
         return [{"config": n, "gen_tokens": 16, "mismatched_tokens": 0} for n in names]
 
     monkeypatch.setattr(harness, "run_isolated", fake_run_isolated)
-    a = NS(probe=probe_dir, engine="sglang", matrix="default", only="", list=False, requests=8, new_tokens=16,
+    a = NS(probe=probe_dir, engine=engine, matrix="default", only="", list=False, requests=8, new_tokens=16,
            max_len=4000, fault_requests=64, out=str(tmp_path / "r.jsonl"), strict=True, in_process=False,
            entry_timeout=900)
     assert harness.run_engine(a) == 0
-    assert seen["names"] == [e["name"] for e in sglang_engine.matrix("default", "dense")]
+    eng = sglang_engine if engine == "sglang" else vllm_engine
+    assert seen["names"] == [e["name"] for e in eng.matrix("default", "dense")]
     cmd = seen["cmd"]
     assert cmd[cmd.index("--only") + 1] == seen["names"][1] and cmd[cmd.index("--out") + 1] == "rec.jsonl"
-    assert seen["timeout"] == 900 and seen["extra"] == {"engine": "sglang"}
+    assert cmd[cmd.index("--engine") + 1] == engine
+    assert seen["timeout"] == 900 and seen["extra"] == {"engine": engine}

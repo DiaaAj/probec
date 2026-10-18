@@ -105,10 +105,11 @@ with its prompt length, its first wrong step and the KV positions that step read
 matrix also corrupts KV blocks through the real paged cache to prove detection, and maps the probe's
 self-describing KV cache to locate the corrupted block.
 
-On SGLang each entry runs in its own process, because SGLang kills its whole process tree when a
-scheduler fails (for example on a backend the GPU cannot compile). An entry that crashes or exceeds
-`--entry-timeout` (default 1800 s) gets an error record with the end of its output, and the run
-continues with the next entry. `--in-process` runs every entry in one process instead.
+Each entry runs in its own process. SGLang kills its whole process tree when a scheduler fails (for
+example on a backend the GPU cannot compile), and an engine torn down in-process can keep GPU memory the
+next entry needs. An entry that crashes or exceeds `--entry-timeout` (default 1800 s) gets an error
+record with the end of its output, and the run continues with the next entry. `--in-process` runs every
+entry in one process instead.
 
 ## Using probec in an engine's CI
 A probe twin is an ordinary Hugging Face checkpoint, so compile it once and cache it:
