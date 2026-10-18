@@ -346,3 +346,20 @@ would have been skipped; none was.
   step).
 - First attempt: a Utah host parked the container as stopped; destroyed after 3 minutes. The Czech host
   pulled the image in about 2 minutes.
+
+## M5, step 1 — SGLang matrix entries in their own processes (2026-10-18, CPU)
+Session 16's matrix ended at its first crashing entry: when a scheduler fails, SGLang sends SIGQUIT to
+its parent, whose handler kills the whole process tree, and the parent was the `probec run` process.
+- `probec run --engine sglang` without `--only` now runs each entry as `probec run ... --only <entry>`
+  in a child process with its own session, so killing the child's tree cannot reach the parent. A child
+  that exits, is killed or exceeds `--entry-timeout` (default 1800 s) without writing a record gets an
+  error record with the last 20 lines of its output; the run then continues. After each entry the
+  child's process group is killed, so leftover engine processes cannot hold GPU memory. A parent stopped
+  by SIGTERM (a job's `timeout`) stops its child first. `--in-process` keeps the old behaviour; vLLM
+  entries still run in one process.
+- Tests: fake entries that write a record, exit with an error, kill their own process tree (as SGLang
+  does) and hang; and the SGLang route builds one `--only` child per matrix entry. 59 CPU tests pass. A
+  local run of the `quick` matrix without SGLang installed produced one error record per entry from real
+  child processes.
+- Still to validate on a GPU: the default SGLang matrix on 0.5.22 should now reach the FP8 KV and NGRAM
+  entries after flex_attention fails.

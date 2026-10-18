@@ -1,21 +1,30 @@
-"""Engine-independent harness helpers: workloads, scoring with failure details, KV layout views and block
-ownership (the parts of GPU localization that do not need a GPU)."""
+"""Engine-independent harness helpers: workloads, scoring with failure details, KV layout views, block
+ownership (the parts of GPU localization that do not need a GPU) and running entries in their own
+processes."""
+import json
+import sys
+
 import numpy as np
 import pytest
 import torch
 
 from probec.compile import compile_probe
-from probec.harness import score, shared_workload, workload
+from probec.harness import run_isolated, score, shared_workload, workload
 from probec.harness.localize import _kv_view, block_owners
 from probec.oracle import Probe
 from probec.spec import builtin
 
 
 @pytest.fixture(scope="module")
-def probe(tmp_path_factory):
+def probe_dir(tmp_path_factory):
     out = str(tmp_path_factory.mktemp("h"))
     compile_probe(builtin("tiny-llama", layers=2), out, classes=512, pools="128,128,256")
-    return Probe(out)
+    return out
+
+
+@pytest.fixture(scope="module")
+def probe(probe_dir):
+    return Probe(probe_dir)
 
 
 def test_workload_prompts_are_valid(probe):
@@ -103,3 +112,46 @@ def test_split_marker_variant_keeps_the_oracle(probe):
     first_diff = next(i for i, (a, b) in enumerate(zip(base, v)) if a != b)
     assert len(pos) == 2 and pos[0] < first_diff <= pos[1]       # one marker cached, one in the new part
     assert probe.expected(v, 16) == probe.expected(base, 16)
+
+
+def test_isolated_entries_survive_crashes_and_timeouts(tmp_path):
+    # what SGLang's SIGQUIT handler does when a scheduler fails: kill the whole process tree
+    children = {
+        "writes": "import json, sys; open(sys.argv[1], 'w').write(json.dumps({'config': 'writes', 'gen_tokens': 8}))",
+        "exits": "import sys; print('boom'); sys.exit(3)",
+        "kills_its_tree": ("import os, signal, subprocess, sys; "
+                           "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+                           "os.killpg(0, signal.SIGKILL)"),
+        "hangs": "import time; time.sleep(60)",
+    }
+    out = tmp_path / "results.jsonl"
+    recs = run_isolated(list(children), lambda name, path: [sys.executable, "-c", children[name], path],
+                        str(out), timeout=3, extra={"engine": "fake"})
+    assert recs[0] == {"config": "writes", "gen_tokens": 8}
+    assert recs[1]["error"] == "entry process exited with status 3 without a record"
+    assert "boom" in recs[1]["output_tail"]
+    assert recs[2]["error"] == "entry process killed by SIGKILL without a record"
+    assert recs[3]["error"] == "entry process timed out after 3 s without a record"
+    assert [r["config"] for r in recs] == list(children) and all(r["engine"] == "fake" for r in recs[1:])
+    assert [json.loads(l) for l in out.read_text().splitlines()] == recs
+
+
+def test_sglang_runs_each_matrix_entry_in_its_own_process(probe_dir, tmp_path, monkeypatch):
+    from types import SimpleNamespace as NS
+    import probec.harness as harness
+    from probec.harness import sglang_engine
+    seen = {}
+
+    def fake_run_isolated(names, make_cmd, out, timeout, extra=None):
+        seen.update(names=names, cmd=make_cmd(names[1], "rec.jsonl"), timeout=timeout, extra=extra)
+        return [{"config": n, "gen_tokens": 16, "mismatched_tokens": 0} for n in names]
+
+    monkeypatch.setattr(harness, "run_isolated", fake_run_isolated)
+    a = NS(probe=probe_dir, engine="sglang", matrix="default", only="", list=False, requests=8, new_tokens=16,
+           max_len=4000, fault_requests=64, out=str(tmp_path / "r.jsonl"), strict=True, in_process=False,
+           entry_timeout=900)
+    assert harness.run_engine(a) == 0
+    assert seen["names"] == [e["name"] for e in sglang_engine.matrix("default", "dense")]
+    cmd = seen["cmd"]
+    assert cmd[cmd.index("--only") + 1] == seen["names"][1] and cmd[cmd.index("--out") + 1] == "rec.jsonl"
+    assert seen["timeout"] == 900 and seen["extra"] == {"engine": "sglang"}

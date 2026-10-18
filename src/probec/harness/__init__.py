@@ -1,7 +1,13 @@
 """Engine harness: run a probe through an inference engine across a matrix of serving configurations,
 compare every generated token with the oracle, and optionally inject KV faults to prove detection."""
+import collections
 import json
 import os
+import signal
+import subprocess
+import sys
+import tempfile
+import threading
 
 import numpy as np
 
@@ -110,6 +116,95 @@ def probe_kind(model_dir):
         return json.load(f)["program"]
 
 
+def _stop_group(proc):
+    """Kill a child's whole process group: engine processes a crashed child leaves behind hold GPU memory."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    proc.wait()
+
+
+def _exit_on_signal(signum, _frame):
+    raise SystemExit(128 + signum)
+
+
+def run_isolated(names, make_cmd, out, timeout, extra=None):
+    """Run each matrix entry in its own child process and session and append its record to `out`.
+    make_cmd(name, record_path) gives the child's argv; the child writes its record to record_path. A
+    child that exits, is killed or times out without writing one gets an error record with the end of
+    its output. Returns the records."""
+    # a parent stopped by SIGTERM (e.g. `timeout`) must still stop its child, which has its own session
+    trap = threading.current_thread() is threading.main_thread() and \
+        signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
+    if trap:
+        signal.signal(signal.SIGTERM, _exit_on_signal)
+    recs = []
+    try:
+        for name in names:
+            recs.append(_run_one(name, make_cmd, out, timeout, extra))
+    finally:
+        if trap:
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    return recs
+
+
+def _run_one(name, make_cmd, out, timeout, extra):
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "record.jsonl")
+        proc = subprocess.Popen(make_cmd(name, path), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                start_new_session=True, text=True, errors="replace")
+        tail = collections.deque(maxlen=20)
+
+        def pump():
+            for line in proc.stdout or ():
+                sys.stdout.write(line)
+                sys.stdout.flush()
+                tail.append(line.rstrip("\n"))
+
+        reader = threading.Thread(target=pump, daemon=True)
+        reader.start()
+        try:
+            code = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            code = None
+        finally:
+            _stop_group(proc)
+        reader.join(5)
+        rec = None
+        if os.path.exists(path):
+            with open(path) as f:
+                lines = [l for l in f if l.strip()]
+            try:
+                rec = json.loads(lines[-1]) if lines else None
+            except ValueError:          # the child died while writing it
+                rec = None
+        if rec is None:
+            if code is None:
+                why = f"timed out after {timeout} s"
+            elif code < 0:
+                try:
+                    why = f"killed by {signal.Signals(-code).name}"
+                except ValueError:
+                    why = f"killed by signal {-code}"
+            else:
+                why = f"exited with status {code}"
+            rec = {"config": name, **(extra or {}), "error": f"entry process {why} without a record",
+                   "output_tail": "\n".join(tail)[-2000:]}
+            print(json.dumps(rec), flush=True)
+    with open(out, "a") as f:
+        f.write(json.dumps(rec) + "\n")
+    return rec
+
+
+def _entry_cmd(a, name, path):
+    """argv that runs one matrix entry of this `probec run` in a fresh interpreter."""
+    return [sys.executable, "-m", "probec.cli", "run", a.probe, "--engine", a.engine, "--matrix", a.matrix,
+            "--only", name, "--requests", str(a.requests), "--new-tokens", str(a.new_tokens),
+            "--max-len", str(a.max_len), "--fault-requests", str(getattr(a, "fault_requests", 64)),
+            "--out", path]
+
+
 def run_engine(a):
     if a.engine == "vllm":
         from . import vllm_engine as eng
@@ -120,9 +215,18 @@ def run_engine(a):
     if a.list:
         print("\n".join(e["name"] for e in plan))
         return 0
+    os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
+    if a.engine == "sglang" and not a.only and not getattr(a, "in_process", False):
+        # SGLang kills its whole process tree when a scheduler fails (e.g. a backend this GPU cannot
+        # compile), which in one process would end the run at the first such entry
+        recs = run_isolated([e["name"] for e in plan], lambda name, path: _entry_cmd(a, name, path), a.out,
+                            getattr(a, "entry_timeout", 1800), extra={"engine": a.engine})
+        total = sum(r.get("gen_tokens", 0) for r in recs)
+        bad = sum(r.get("mismatched_tokens", 0) or 0 for r in recs)
+        print(f"probec run: {total} generated tokens checked, {bad} mismatched")
+        return 2 if (bad and getattr(a, "strict", False)) else 0
     probe = Probe(a.probe)
     max_len = min(a.max_len, probe.max_context - a.new_tokens - 64)
-    os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
     total = bad = 0
     for i, entry in enumerate(plan):
         if a.only and entry["name"] != a.only:
@@ -131,7 +235,7 @@ def run_engine(a):
         try:
             rec = eng.run_entry(entry, probe, a, rng, max_len)
         except Exception as e:          # keep going: a backend may be unavailable on this GPU
-            rec = {"config": entry["name"], "error": repr(e)[:1000]}
+            rec = {"config": entry["name"], "engine": a.engine, "error": repr(e)[:1000]}
         print(json.dumps(rec), flush=True)
         with open(a.out, "a") as f:
             f.write(json.dumps(rec) + "\n")
