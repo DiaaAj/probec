@@ -27,6 +27,7 @@ architectures instead of interpretability.
 | `posrecall` | same, at the model's real `rope_theta` and llama3 scaling | position-id slips, RoPE frequency or pairing errors, keys cached with the wrong position |
 | `moe` | Qwen3-MoE | tokens routed to the wrong expert, dropped or duplicated experts, wrong top-k weights; the output names the expert |
 | `mla` | DeepSeek V2/V3 (MLA), V3.2 (DSA sparse attention) | latent-cache misreads, MLA prefill/decode path errors, sparse top-k sets that lose the token being read, softmax-scale faults (FP8-robust) |
+| `hybrid` | Qwen3.5 (dense and MoE) and Qwen3-Next: Gated DeltaNet plus gated attention | recurrent-state errors: lost, stale, zeroed, cross-request or wrong-layer states (prefix-cache restores, chunk boundaries, preemption), lost decode-time writes, rejected speculative drafts left in the state; plus recall's KV errors in the attention layers (`docs/HYBRID.md`) |
 
 Workloads include shared prefixes (short and long suffixes, to reach cached-context prefill paths);
 *decoy* prompts that plant fragments of the expected output, so n-gram speculative decoding proposes
@@ -145,6 +146,8 @@ Details, per-program constructions and limits: [`docs/DESIGN.md`](docs/DESIGN.md
 - Weights are synthetic (bf16); quantization configs are dropped.
 - `tie_word_embeddings` is always false; the recall program pins `rope_theta` to 1e12 (posrecall uses the
   real value); MLA twins use dense MLPs in every layer and drop MTP layers.
+- Hybrid twins of multimodal checkpoints (Qwen3.5) are the text model: the vision tower and the MTP head are
+  dropped. MoE hybrids keep the experts' shapes, with the routed experts at zero.
 - Everything else (architecture class, widths, head counts, vocab, norms, RoPE scaling) is the real
   model's, so the engine picks the same kernels.
 
