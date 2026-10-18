@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Frugal one-shot vast.ai runner: rent -> wait for ssh -> push dir -> run -> pull results -> ALWAYS destroy.
+# Frugal one-shot vast.ai runner: rent -> wait for ssh -> push dir -> run (detached, polled) -> pull results -> ALWAYS destroy.
 # usage: vast_run.sh <offer_id> <image> <local_exp_dir> <remote_cmd> [max_minutes] [disk_gb]
 # - local_exp_dir is rsynced to /root/exp on the box; results must be written to /root/exp/out
 # - hard wall-clock cap: the instance is destroyed after max_minutes no matter what
@@ -46,8 +46,32 @@ main() {
   fi
   ssh $SSHO -p "$PORT" root@"$HOST" "mkdir -p /root/exp" >>"$LOG" 2>&1
   tar -C "$LDIR" --exclude=out -czf - . | ssh $SSHO -p "$PORT" root@"$HOST" "tar -C /root/exp -xzf -" >>"$LOG" 2>&1
-  ssh $SSHO -p "$PORT" root@"$HOST" "mkdir -p /root/exp/out && cd /root/exp && timeout $((MAXMIN*60-120)) bash -lc '$RCMD'" 2>&1 | tee -a "$LOG"
-  ssh $SSHO -p "$PORT" root@"$HOST" "tar -C /root/exp/out -czf - ." | tar -C "$LDIR/out" -xzf - >>"$LOG" 2>&1
+  # the job runs detached on the box (a dropped ssh session no longer kills it, session 25); poll it, copy its
+  # output into the log as it grows, and pull the results every few minutes so a lost box loses little
+  R="ssh $SSHO -p $PORT root@$HOST"
+  printf '#!/bin/bash\necho $$ > /root/exp/out/.job_pid\ncd /root/exp\ntimeout %s bash -lc "%s"\necho $? > /root/exp/out/.job_exit\n' \
+    "$((MAXMIN*60-120))" "$RCMD" | $R "mkdir -p /root/exp/out && cat > /root/exp/.launch.sh" >>"$LOG" 2>&1
+  $R "setsid nohup bash /root/exp/.launch.sh > /root/exp/out/job_stdout.log 2>&1 < /dev/null & sleep 2; cat /root/exp/out/.job_pid" >>"$LOG" 2>&1
+  pull(){ $R "tar -C /root/exp/out -czf - ." > "$LDIR/out/.pull.tgz" 2>/dev/null && tar -C "$LDIR/out" -xzf "$LDIR/out/.pull.tgz" >>"$LOG" 2>&1
+          rm -f "$LDIR/out/.pull.tgz"; }
+  seen=0; last_pull=$(date +%s); fails=0
+  while true; do
+    STATE=$($R "cat /root/exp/out/.job_exit 2>/dev/null || echo RUNNING; wc -l < /root/exp/out/job_stdout.log; kill -0 \$(cat /root/exp/out/.job_pid) 2>/dev/null && echo ALIVE || echo GONE" 2>/dev/null)
+    if [ -z "$STATE" ]; then
+      fails=$((fails+1)); [ $fails -ge 20 ] && { echo "[$(ts)] box unreachable for 10 minutes" | tee -a "$LOG"; break; }
+      sleep 30; continue
+    fi
+    fails=0
+    EXITC=$(echo "$STATE" | sed -n 1p); NL=$(echo "$STATE" | sed -n 2p); ALIVE=$(echo "$STATE" | sed -n 3p)
+    if [ "$NL" -gt "$seen" ] 2>/dev/null; then
+      $R "sed -n '$((seen+1)),${NL}p' /root/exp/out/job_stdout.log" 2>/dev/null | tee -a "$LOG"; seen=$NL
+    fi
+    if [ $(( $(date +%s) - last_pull )) -ge 240 ]; then pull; last_pull=$(date +%s); fi
+    [ "$EXITC" != "RUNNING" ] && { echo "[$(ts)] job exited with status $EXITC" | tee -a "$LOG"; break; }
+    [ "$ALIVE" = "GONE" ] && { echo "[$(ts)] job process gone without an exit status (box restarted?)" | tee -a "$LOG"; break; }
+    sleep 30
+  done
+  pull
   kill $WD 2>/dev/null
   echo "[$(ts)] done" | tee -a "$LOG"
 }

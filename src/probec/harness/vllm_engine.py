@@ -124,6 +124,13 @@ def hybrid_matrix(name):
     (rejected drafts must be rolled back) and the state's dtype."""
     base = {"gpu_memory_utilization": 0.85}
     fa = dict(base, attention_backend="FLASH_ATTN")
+    if name == "hybriddebug":      # isolate the default-config failures of session 25 (prefix caching on)
+        return [{"name": "FLASH_ATTN/default_rep", "kw": dict(fa)},
+                {"name": "FLASH_ATTN/no_async", "kw": dict(fa, async_scheduling=False)},
+                {"name": "FLASH_ATTN/no_prefix_cache_eager", "kw": dict(fa, enable_prefix_caching=False,
+                                                                        enforce_eager=True)},
+                {"name": "FLASH_ATTN/max_seqs_16", "kw": dict(fa, max_num_seqs=16)},
+                {"name": "FLASH_ATTN/batch_tokens_32k", "kw": dict(fa, max_num_batched_tokens=32768)}]
     plan = [{"name": "FLASH_ATTN/default", "kw": dict(fa)}]
     if name == "quick":
         return plan
