@@ -12,7 +12,7 @@
     detected and localized.
 - Code-book generation sped up from 75 s to 6.5 s (float32 BLAS for the ±1 dot products).
 
-## M1 — dense probe as a tool (in progress, 2026-10-07)
+## M1 — dense probe as a tool (done, 2026-10-07)
 - **GPU session 1** (RTX 3090, vLLM 0.31.0 / SGLang 0.5.21, real Qwen3-0.6B twin: Qwen3ForCausalLM with
   QK-norm, 28 layers, vocab 151,936; ~$0.25):
   - vLLM: 14 configurations (FLASH_ATTN, FLASHINFER, TRITON_ATTN, FLEX_ATTENTION × prefix caching +
@@ -35,13 +35,13 @@
 - **Scale check** (in `recall`): calibrated 4:1 two-marker lookup; on CPU it flags softmax-scale faults
   ×0.5, ×0.75, ×1.44 (exp vs exp2), ×2, ×11.3 on every token, tolerates ×0.85–×1.3, works with QK-norm.
 
-## M2 — MoE (in progress)
+## M2 — MoE (done, 2026-10-07)
 - `moe` program for Qwen3-MoE: exact routing (router logits ±16, weights exactly 1/k), pointer logic in
   every expert, per-expert TAG flips and diagnostic tokens. CPU (HF Qwen3-MoE): 0 mismatches in fp32 and
   bf16, bit-exact states; misroutes and duplicates detected and the expert named 100%; drops detected
   100% (named ~50%); KV faults detected and localized.
 
-## M3 — MLA (in progress)
+## M3 — MLA (done, 2026-10-07)
 - `mla` program for DeepSeek V2/V3 (MLA) and V3.2 (DSA sparse attention indexer). CPU (HF): 0
   mismatches, bit-exact states, latent-cache faults detected and localized; with DSA top-k selection
   active, a decode-time top-k set that loses the query token (the vLLM #58704 class) is detected.
@@ -363,3 +363,24 @@ its parent, whose handler kills the whole process tree, and the parent was the `
   child processes.
 - Still to validate on a GPU: the default SGLang matrix on 0.5.22 should now reach the FP8 KV and NGRAM
   entries after flex_attention fails.
+
+## GPU session 18 (RTX 3090, ~$0.30) — the SGLang NGRAM bug is still in 0.5.22
+Run by a background agent on the Czech host from session 17 (one launch, 30 minutes). The repro gained
+`--finish stop`: each request ends on its own stop token (an oracle token at a random position 8–240 that
+does not occur earlier; `ignore_eos` off), and the oracle answer is cut there. pip wheels, Python 3.12,
+as in session 16.
+- 0.5.22 with length endings: 0/192. With stop-token endings: **3/192 wrong** (58, 109, 185), the run
+  without speculation exact; 0/192 with the overlap scheduler off.
+- 0.5.22 with only #42720's skip switched off (`self.enable_skip_finishing_decode = True` → `False` in
+  `event_loop_overlap`, one line): **8/192, the same requests and first divergent steps as 0.5.21.**
+- 0.5.21: 8/192 with length endings (control), 3/192 with stop-token endings, the same 3 requests as
+  0.5.22 with identical NGRAM verify counts.
+- 0.5.22 with forced retraction (`SGLANG_TEST_RETRACT=1`), length endings: 0/192.
+- So the defect is still in 0.5.22, and #42720 hides it only for requests that end by length. EOS
+  endings go through the same check as stop tokens (`_check_token_based_finish`), so EOS-terminated
+  traffic is most likely affected too; not measured.
+- As before, a request owning a cached prefix goes wrong mid-generation (58 at token 137) and requests
+  reusing cached prefixes are wrong from their first reads (109, 185 at token 4).
+- The agent's local dry run compiled the full 28-layer twin on the laptop while my activation analysis
+  was running; together they froze it (swap nearly full, load about 136). Both have been stopped, and heavy
+  work now goes to rented boxes.

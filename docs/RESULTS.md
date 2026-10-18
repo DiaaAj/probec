@@ -10,8 +10,8 @@ tools/summarize_runs.py` reproduces the totals below, and `PROGRESS.md` has the 
   H100 and B200 GPUs, plus SGLang 0.5.22 on an RTX 3090 (and older vLLM releases and per-commit vLLM
   and SGLang builds for replays and bisection).
 - Every entry with mismatches has a known cause:
-  - **engine bugs** — SGLang NGRAM speculative decoding in 0.5.21 (not triggered since #42720,
-    probably not fixed), vLLM MLA prefix caching in 0.25.1–0.27.1
+  - **engine bugs** — SGLang NGRAM speculative decoding in 0.5.21 and 0.5.22 (since #42720 hidden for
+    requests that end by length), vLLM MLA prefix caching in 0.25.1–0.27.1
     (fixed by #50613 in 0.28.0), vLLM #42642 in 0.25.1 (fixed in 0.26.0), vLLM #52796 in 0.28.0 on
     Blackwell (fixed in 0.29.0);
   - **probe bugs found and fixed during validation** — the positional probe before its identical-token
@@ -30,7 +30,7 @@ tools/summarize_runs.py` reproduces the totals below, and `PROGRESS.md` has the 
 | SGLang 0.5.21 | RTX 3090 | recall, recall + scale check, posrecall, MoE, MLA | flashinfer, triton × {default, chunked 512 + sampling, no radix + eager + memory pressure, page 16}; FlashInfer FP8 KV | 0 |
 | SGLang 0.5.21 | 2× RTX 3090 | MoE twin, dense recall | EP=2 + EPLB (16 redundant experts), EP=2 + TP=2, TP=2 | 0 |
 | SGLang 0.5.21 | H100 | recall + scale check, posrecall v2, MoE, MLA V3 | fa3 × {default, chunked + sampling, page 16}, MLA on flashmla and fa3, FA3 FP8 KV, n-gram with decoys | 0 (except the NGRAM workload, §3) |
-| SGLang 0.5.22 | RTX 3090 | recall | flashinfer, triton × {default, chunked 512 + sampling, no radix + eager + memory pressure, page 16}; the NGRAM workload of §3 | 0 |
+| SGLang 0.5.22 | RTX 3090 | recall | flashinfer, triton × {default, chunked 512 + sampling, no radix + eager + memory pressure, page 16}; the NGRAM workload of §3 with length endings | 0 (with stop-token endings the NGRAM workload still fails, §3) |
 
 Decoy prompts make speculative decoding do real work: on FlashMLA, 2,608 n-gram drafts proposed 10,432
 tokens, 7,597 were accepted and the rest rejected, and every generated token was exact.
@@ -56,8 +56,8 @@ fraction; the matrix now lowers it for that entry).
   token detected.
 
 ## 3. Real bugs observed
-1. **SGLang 0.5.21, NGRAM speculative decoding (not triggered in 0.5.22 since #42720).** Deterministic
-   wrong greedy outputs:
+1. **SGLang 0.5.21 and 0.5.22, NGRAM speculative decoding (unreported; hidden since #42720 for requests
+   that end by length).** Deterministic wrong greedy outputs:
    8/192 requests (1,793 tokens) on an RTX 3090, 6 on an H100 — the first failure is the same request at
    the same generated step on both, and the same 8 requests fail at the same steps on three RTX 3090
    hosts. It needs NGRAM + radix cache + overlap scheduler + CUDA graphs (all
@@ -73,10 +73,13 @@ fraction; the matrix now lowers it for that entry).
    a request whose in-flight result carries its last token got one more decode, whose output was thrown
    away; #42720 skips that decode for requests that finish by `max_new_tokens`. Its description presents
    it as an optimization and says requests finishing on EOS or a stop string still run the trailing
-   decode. Our workload ends every request by length (`ignore_eos`, 256 tokens), so the bug is most
-   likely hidden in 0.5.22 rather than fixed, with the discarded trailing NGRAM verify the likely writer
-   of the overwritten KV. Not yet tested: 0.5.22 with requests that end on a stop token. A draft issue
-   with a repro script is ready.
+   decode. Our workload ended every request by length (`ignore_eos`, 256 tokens). **It is hidden, not
+   fixed (§3c):** when each request ends on its own stop token instead, 0.5.22 gets 3/192 requests wrong,
+   the same 3 requests as 0.5.21, and 0 with the overlap scheduler off. Switching off only #42720's skip in
+   0.5.22 (one line) brings back 0.5.21's 8/192 exactly. EOS endings go through the same check as stop
+   tokens, so ordinary EOS-terminated traffic is most likely affected too (not measured). The pattern fits
+   the discarded trailing NGRAM verify step overwriting cached KV; the exact write path is not identified.
+   A draft issue with a repro script is ready.
 2. **vLLM 0.25.1 – 0.27.1, MLA with prefix caching (fixed in 0.28.0).** On a DeepSeek-V2-Lite twin, the
    same 7 of 96 requests are wrong from their first generated token on 0.25.1, 0.26.0 and 0.27.1; 0.28.0,
    0.29.0, 0.30.0 and 0.31.0 are exact on the identical workload, as is 0.31.0 with prefix caching off,
@@ -138,6 +141,25 @@ fresh venv; the run without speculation was exact at every commit.
 The torch 2.14.1, sglang-kernel 0.4.9 and FlashInfer 0.7.0.post1 upgrades all land before position 406,
 which still fails, so no dependency change is involved. `tools/gpu_job_s17_bisect.sh` and
 `tools/bisect_ngram_step.sh` are the scripts.
+
+### 3c. Bug 1 in 0.5.22, by how requests end
+Same workload and GPU (pip wheels, as in session 16). With `--finish stop`, every request gets
+`stop_token_ids` = its oracle answer's token at a random position 8–240 (median 94) that does not occur
+earlier, and `ignore_eos` is off; the oracle answer is cut there (SGLang keeps the matched token).
+
+| SGLang | Endings | NGRAM wrong requests | Without speculation |
+|---|---|---|---|
+| 0.5.22 | length | 0 | exact |
+| 0.5.22 | stop token | **3** (58, 109, 185) | exact |
+| 0.5.22, overlap scheduler off | stop token | 0 | exact |
+| 0.5.22 with #42720's skip switched off | length | **8**, the same requests and steps as 0.5.21 | exact |
+| 0.5.21 | length | 8 | exact |
+| 0.5.21 | stop token | 3, the same as 0.5.22 | exact |
+| 0.5.22, forced retraction (`SGLANG_TEST_RETRACT=1`) | length | 0 | exact |
+
+As with length endings, one request owning a cached prefix goes wrong mid-generation (58, at token 137)
+and requests reusing cached prefixes are wrong from their first reads (109 and 185, at token 4); the
+three then miss their stop tokens. `tools/gpu_job_s18_stoptoken.sh` is the script.
 
 ## 4. Replays that did not trigger
 - vLLM #36616 (V3.2 sparse top-k padding): 0.23.0 and 0.24.0 exact on an H100 (the image lacked

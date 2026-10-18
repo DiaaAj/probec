@@ -46,14 +46,14 @@ Details and raw numbers: [`docs/RESULTS.md`](docs/RESULTS.md).
 - **Faults are caught and located:** deliberately corrupted KV blocks in vLLM's real paged cache were
   caught 40/40 times, and the corrupted block was named 40/40 times.
 - **Real bugs:**
-  1. *SGLang 0.5.21, unreported:* NGRAM speculative decoding corrupts radix-cached KV when the overlap
-     scheduler and CUDA graphs are on and requests sharing prefixes run concurrently (8/192 requests;
-     deterministic: the same requests fail at the same steps on three RTX 3090 hosts, and it also shows
-     on an H100). Every request that reuses the corrupted prefix inherits the error. Real-model
-     comparisons cannot isolate it; the probe's exact oracle does. Not triggered in 0.5.22: bisected to
-     #42720, a scheduler optimization that drops a discarded trailing decode for requests finishing by
-     length, so the bug is probably hidden rather than fixed (requests ending on EOS or a stop string
-     still run that decode).
+  1. *SGLang 0.5.21 and 0.5.22, unreported:* NGRAM speculative decoding corrupts radix-cached KV when
+     the overlap scheduler and CUDA graphs are on and requests sharing prefixes run concurrently (8/192
+     requests; deterministic: the same requests fail at the same steps on three RTX 3090 hosts, and it
+     also shows on an H100). Every request that reuses the corrupted prefix inherits the error.
+     Real-model comparisons cannot isolate it; the probe's exact oracle does. A bisection stops at
+     #42720, a scheduler optimization that drops a discarded trailing decode, but only for requests that
+     end by length. With requests ending on stop tokens, 0.5.22 fails 3/192 like 0.5.21, and switching
+     #42720's skip off brings back the 8/192.
   2. *vLLM 0.25.1–0.27.1, unreported:* MLA with prefix caching returns wrong outputs for 7/96 requests
      on a DeepSeek-V2-Lite twin, from their first token. Bisected with per-commit builds to the fix:
      #50613, merged as a prefill-scheduling optimization.
