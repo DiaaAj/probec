@@ -158,3 +158,20 @@ def test_each_matrix_entry_runs_in_its_own_process(probe_dir, tmp_path, monkeypa
     assert cmd[cmd.index("--only") + 1] == seen["names"][1] and cmd[cmd.index("--out") + 1] == "rec.jsonl"
     assert cmd[cmd.index("--engine") + 1] == engine
     assert seen["timeout"] == 900 and seen["extra"] == {"engine": engine}
+
+
+def test_only_entry_also_runs_in_its_own_process(probe_dir, tmp_path, monkeypatch):
+    # an engine that crashes on the entry must not take `probec run --only` down with it
+    from types import SimpleNamespace as NS
+    import probec.harness as harness
+    seen = {}
+
+    def fake_run_isolated(names, make_cmd, out, timeout, extra=None):
+        seen["names"] = names
+        return [{"config": n, "gen_tokens": 16, "mismatched_tokens": 0} for n in names]
+
+    monkeypatch.setattr(harness, "run_isolated", fake_run_isolated)
+    a = NS(probe=probe_dir, engine="sglang", matrix="default", only="triton/default", list=False, requests=8,
+           new_tokens=16, max_len=4000, fault_requests=64, out=str(tmp_path / "r.jsonl"), strict=False,
+           in_process=False, entry_timeout=900)
+    assert harness.run_engine(a) == 0 and seen["names"] == ["triton/default"]

@@ -125,6 +125,9 @@ def _stop_group(proc):
     proc.wait()
 
 
+ISOLATED_ENV = "PROBEC_ISOLATED_ENTRY"      # set in an entry's own process: run it here, do not isolate again
+
+
 def _exit_on_signal(signum, _frame):
     raise SystemExit(128 + signum)
 
@@ -153,7 +156,8 @@ def _run_one(name, make_cmd, out, timeout, extra):
     with tempfile.TemporaryDirectory() as td:
         path = os.path.join(td, "record.jsonl")
         proc = subprocess.Popen(make_cmd(name, path), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                start_new_session=True, text=True, errors="replace")
+                                start_new_session=True, text=True, errors="replace",
+                                env=dict(os.environ, **{ISOLATED_ENV: "1"}))
         tail = collections.deque(maxlen=20)
 
         def pump():
@@ -216,11 +220,12 @@ def run_engine(a):
         print("\n".join(e["name"] for e in plan))
         return 0
     os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
-    if not a.only and not getattr(a, "in_process", False):
+    if not getattr(a, "in_process", False) and not os.environ.get(ISOLATED_ENV):
         # SGLang kills its whole process tree when a scheduler fails (e.g. a backend this GPU cannot
         # compile), which in one process would end the run at the first such entry; and an engine torn
         # down in-process can leave GPU memory allocated, so the next one would not fit (vLLM, session 19)
-        recs = run_isolated([e["name"] for e in plan], lambda name, path: _entry_cmd(a, name, path), a.out,
+        names = [e["name"] for e in plan if not a.only or e["name"] == a.only]
+        recs = run_isolated(names, lambda name, path: _entry_cmd(a, name, path), a.out,
                             getattr(a, "entry_timeout", 1800), extra={"engine": a.engine})
         total = sum(r.get("gen_tokens", 0) for r in recs)
         bad = sum(r.get("mismatched_tokens", 0) or 0 for r in recs)
