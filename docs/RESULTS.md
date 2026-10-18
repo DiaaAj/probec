@@ -196,13 +196,13 @@ online FP8 is the `quant` matrix on the bf16 twin. Each cell is one entry of 192
 |---|---|---|---|---|---|---|
 | online FP8 (Marlin W8A16 on SM86, W8A8 above) | ✓ (4 entries) | ✓ (6) | ✓ (6) | ✓ (5) | ✓ (5) | ✓ (5) |
 | dense FP8 per tensor | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| dense FP8 128×128 blocks | ✓ | ✓ (also 8B-shaped) | ✓ | 1 request wrong (§6.1) | ✓ | ✓ |
+| dense FP8 128×128 blocks | ✓ | ✓ (also 8B-shaped) | ✓ | 1–5 requests wrong in 5 of 7 runs (§6.1) | ✓ | ✓ |
 | MoE FP8 / FP8 blocks | ✓ / ✓ | — / ✓ | — / ✓ | crash: Triton FP8 MoE needs SM89 | — / ✓ | — / ✓ |
 | dense AWQ | ✓ | ✓ Machete (also 8B) | ✓ | ✓ | ✓ (also 8B) | ✓ |
-| MoE AWQ | ✓ | — | — | 1 request wrong (§6.1) | — | — |
+| MoE AWQ | ✓ | — | — | 1–18 requests wrong in 7 of 8 runs (§6.1) | — | — |
 | dense / MoE GPTQ | ✓ / ✓ | ✓ Machete / — | — | ✓ / crash: needs fp16 scales | ✓ / — | — |
 | dense NVFP4, probec's scales (`weight_scale_2 = 1`) | ✓ (Marlin W4A16) | ✓ | ✓ (W4A4) | **192/192 wrong** | **192/192 wrong** | ✓ (W4A4) |
-| dense NVFP4, ModelOpt-style scales | (§6.1) | — | ✓ (W4A4) | (§6.1) | — | ✓ |
+| dense NVFP4, ModelOpt-style scales | ✓ | — | ✓ (W4A4) | ✓ (Marlin) | — | ✓ |
 | MoE NVFP4, probec's scales | ✓ | — | ✓ (TRT-LLM) | **192/192 wrong** | — | ✓ |
 | DeepSeek-V3 MLA, FP8 blocks | — | ✓ FlashMLA, Triton MLA | ✓ CUTLASS MLA, FlashInfer MLA | — | ✓ | crash: 256 GiB allocation |
 
@@ -221,10 +221,20 @@ dense, MoE and MLA twins is exact in FP8, FP8 blocks, AWQ, GPTQ and NVFP4 (`prob
   identical counts** on them: 49,133 (dense) and 49,135 (MoE) of 49,152 tokens wrong; 0.19.0 is exact
   (§6.2). Any NVFP4 checkpoint with small block scales hits it, for example one exported with a global scale
   of 1.
-- **SGLang 0.5.22 on the RTX 3090: one request wrong** with the dense FP8-block twin (request 65, from step
-  11 of a 5,876-token prompt) and with the MoE AWQ twin (request 16, from step 145); vLLM was exact on both.
-  Session 23b reruns them on another host with the radix cache, the overlap scheduler and CUDA graphs
-  switched off one at a time.
+- **SGLang 0.5.22, FP8 Marlin on the RTX 3090, with the overlap scheduler: nondeterministic, unreported.**
+  The dense FP8-block twin goes wrong in 5 of 7 runs (1–5 of 192 requests, on two hosts), from the first
+  token or mid-decode, and in 0 of 5 runs with the overlap scheduler off. With the radix cache off it failed
+  1 of 5 runs, with CUDA graphs off 1 of 3; the bf16 control 0 of 3. A failing request's lookups find nothing,
+  and requests sharing a prefix fail together. SGLang's FP8 Marlin GEMM is exact and deterministic in
+  isolation (`tools/marlin_determinism.py`: 10,330 sizes, repeats, two streams, a side stream as in overlap
+  mode), and vLLM is exact on the same checkpoint. So the fault is in how the engine runs the path with the
+  overlap scheduler; it is not located yet.
+- **SGLang 0.5.22, Marlin MoE (AWQ) on the RTX 3090: nondeterministic, unreported.** 1–18 of 192 requests go
+  wrong in 7 of 8 runs, often many at the same decode step, and also with one request at a time (11 wrong).
+  The MoE program's diagnostic tokens name the experts whose outputs were wrong (64, 65, 70, 75 and 92 in one
+  run). Turning off the radix cache, the overlap scheduler or CUDA graphs, or halving the KV pool, leaves it.
+  The Triton WNA16 MoE kernel (`--quantization moe_wna16`) is exact on the same checkpoint in 2 of 2 runs,
+  and so is vLLM's Marlin MoE (3 of 3).
 - Crashes, not wrong outputs: SGLang's FP8 MoE on SM86 (Triton `fp8e4nv` needs SM89 and there is no Marlin
   fallback), GPTQ MoE with a bf16 model (`moe_wna16_marlin_gemm` asserts fp16 scales), and MLA FP8 blocks on
   the B200 with the Triton backend (a 256 GiB allocation).

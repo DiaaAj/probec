@@ -473,6 +473,26 @@ Every run selected FP8 Marlin (`MarlinFP8ScaledMMLinearKernel`) or NVFP4 Marlin,
 NVFP4 counts are identical to SGLang 0.5.22's on the same checkpoints** (49,133 dense, 49,135 MoE): SGLang's
 NVFP4 Marlin path behaves exactly like vLLM before #34577.
 
+### GPU session 23b (RTX 3090 CZ, ~$0.42): SGLang's quantized-path failures on Ampere
+Rows are runs of one matrix entry's workload (192 requests × 256 tokens, `tools/sgl_variant.py`), with one
+setting changed. Some rows were appended while the job ran; bash reads a script as it executes it.
+- **NVFP4:** probec's unit scales 49,133 tokens wrong, as in sessions 20/21; the same weights with ModelOpt-style
+  scales exact. vLLM 0.31 exact on both. The cause is the scale underflow (vLLM #34577 not ported).
+- **Dense FP8-block (FP8 Marlin, W8A16):** default runs wrong in 5 of 7 (1–5 requests each, including session
+  21 on another host), with Triton attention too; radix cache off 1 of 5, CUDA graphs off 1 of 3, **overlap
+  scheduler off 0 of 5**, the bf16 control 0 of 3. A failing request's lookups find nothing: from then on it
+  emits the probe's default token. Requests that share a prefix fail together. `tools/marlin_determinism.py`
+  checked SGLang's FP8 Marlin GEMM against the exact product: every M from 1 to 1024 plus larger sizes (10,330
+  calls), 20 repeats per size, two streams and a side stream all exact. The engine's use of it is at fault, not
+  the kernel; not located yet.
+- **MoE AWQ (Marlin MoE):** wrong in 7 of 8 runs: default 5 and 17 requests, radix cache off 1, overlap off 2,
+  CUDA graphs off 1, half the KV memory 18 then 0, **one request at a time 11**. The MoE program's diagnostic
+  tokens name the experts with wrong outputs (64, 65, 70, 75, 92 in one run). **Exact with the Triton WNA16 MoE
+  kernel (`quantization="moe_wna16"`, 2 of 2) and on vLLM 0.31 (2 of 2)**; the bf16 MoE control exact at 0.8 and
+  0.9 memory fractions. A KV-index overflow is ruled out (it fails with half the pool).
+- `probec run --only` on a crashing entry (SGLang MoE FP8 on SM86) now leaves an error record.
+- Issue drafts (not filed, `notes/`): Marlin MoE, FP8 Marlin with the overlap scheduler.
+
 ## M7 — hybrid linear-attention models (from 2026-10-18)
 Design: `docs/HYBRID.md`. Targets Qwen3.5 (text models `Qwen3_5ForCausalLM`; both engines register them),
 whose Gated DeltaNet layers make up 3 of every 4. Each GDN layer is a hop of the recall chain: its recurrent
