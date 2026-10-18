@@ -76,6 +76,12 @@ def cmd_report(a):
     print(f"\n{len(rows)} configurations, {tot} generated tokens checked, {bad} mismatched")
 
 
+def cmd_quantize(a):
+    from .quantize import quantize_twin
+    quantize_twin(a.probe, a.out, a.format, allow_inexact=a.allow_inexact)
+    return 0
+
+
 def cmd_run(a):
     from .harness import run_engine
     return run_engine(a)
@@ -119,6 +125,13 @@ def main(argv=None):
     c.add_argument("--quant-weight", help="instead: generate with dequantized weights of this format")
     c.add_argument("--device", default="cpu", help="device for --quant-act / --quant-weight runs")
     c.set_defaults(fn=cmd_check)
+
+    c = sub.add_parser("quantize", help="write a quantized copy of a compiled probe in an engine checkpoint format")
+    c.add_argument("probe")
+    c.add_argument("--format", required=True, help="fp8 (per-tensor scales) or fp8-block (128x128 block scales)")
+    c.add_argument("-o", "--out", required=True)
+    c.add_argument("--allow-inexact", action="store_true", help="write even if some weights would not be exact")
+    c.set_defaults(fn=cmd_quantize)
 
     c = sub.add_parser("run", help="run a probe through an inference engine and compare with the oracle")
     c.add_argument("probe")

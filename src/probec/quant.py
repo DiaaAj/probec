@@ -100,9 +100,13 @@ def quant_int4(w, group=128, sym=False):
     return q, scale16, z.to(torch.uint8), exact
 
 
+def _grid(like):
+    return E2M1.to(device=like.device, dtype=like.dtype)
+
+
 def e2m1_encode(m):
     """Nearest E2M1 code (0..7) for magnitudes m >= 0 (values above 6 saturate); ties go to the lower code."""
-    return (m[..., None] - E2M1.to(m.dtype)).abs().argmin(-1)
+    return (m[..., None] - _grid(m)).abs().argmin(-1)
 
 
 def quant_fp4(w, group, scale_format):
@@ -126,7 +130,7 @@ def quant_fp4(w, group, scale_format):
         else:
             s_ok = on_e4m3(s)
         r = t.abs() / s[..., None]
-        ok = torch.isin(r, E2M1).all(-1) & s_ok & ~done
+        ok = torch.isin(r, _grid(r)).all(-1) & s_ok & ~done
         best_s = torch.where(ok, s, best_s)
         done |= ok
     r = t.abs() / best_s[..., None]
@@ -163,7 +167,7 @@ def is_quantized_linear(name, shape):
 
 def _fp4_round(r):
     """Round magnitudes r to the E2M1 grid (saturating at 6), keeping the sign of the input."""
-    return E2M1.to(r.dtype)[e2m1_encode(r.abs())] * torch.sign(r)
+    return _grid(r)[e2m1_encode(r.abs())] * torch.sign(r)
 
 
 def fake_quant_act(x, fmt, global_scale=None):
@@ -189,7 +193,7 @@ def fake_quant_act(x, fmt, global_scale=None):
         s = torch.exp2(torch.floor(torch.log2(torch.where(a > 0, a, torch.ones_like(a)))) - 2)
         y = (_fp4_round(g / s) * s).reshape(x.shape)
     elif fmt == "nvfp4":
-        gs = (6.0 * E4M3_MAX / x.abs().amax()) if global_scale is None else torch.tensor(float(global_scale))
+        gs = (6.0 * E4M3_MAX / x.abs().amax()) if global_scale is None else torch.tensor(float(global_scale), device=x.device)
         g = x.reshape(x.shape[0], -1, 16)
         a = g.abs().amax(-1, keepdim=True)
         sb = (a / 6.0 * gs).clamp(max=E4M3_MAX).to(torch.float8_e4m3fn).float()       # stored block scale
@@ -243,7 +247,7 @@ def dequantize(w, fmt):
     if fmt in ("nvfp4", "mxfp4"):
         q, s, _ = quant_fp4(w, 16 if fmt == "nvfp4" else 32, "e4m3" if fmt == "nvfp4" else "e8m0")
         g = i // s.shape[1]
-        mag = E2M1[(q & 7).long()]
+        mag = E2M1.to(q.device)[(q & 7).long()]
         val = torch.where((q & 8) > 0, -mag, mag)
         return (val.reshape(o, -1, g) * s[..., None]).reshape(o, i)
     raise ValueError(f"unknown weight format {fmt!r}; known: {', '.join(WEIGHT_FORMATS)}")

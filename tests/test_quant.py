@@ -59,3 +59,34 @@ def test_twin_weights_survive_every_format(twin):
 def test_twin_stays_exact_under_quantized_activations(twin, act):
     r = check_quant(twin, act=act, weight="fp8", n_prompts=3, max_len=600, n_new=8)
     assert r["tokens"] == 24 and r["mismatches"] == 0, r
+
+
+@pytest.mark.parametrize("fmt", ["fp8", "fp8-block"])
+def test_quantized_checkpoint_round_trips(twin, tmp_path, fmt):
+    import json
+    from safetensors import safe_open
+    from probec.certify import _tensors
+    from probec.quant import _blocks, is_quantized_linear
+    from probec.quantize import quantize_twin
+    out = str(tmp_path / fmt)
+    rep = quantize_twin(twin, out, fmt, log=lambda *_: None)
+    assert rep["quantized_linears"] == 14 and not rep["inexact"]
+    cfg = json.load(open(f"{out}/config.json"))
+    assert cfg["quantization_config"]["quant_method"] == "fp8"
+    orig = dict(_tensors(twin))
+    with safe_open(f"{out}/model.safetensors", "pt") as f:
+        names = set(f.keys())
+        for name, w in orig.items():
+            if not is_quantized_linear(name, w.shape):
+                assert torch.equal(f.get_tensor(name), w)
+                continue
+            q = f.get_tensor(name)
+            assert q.dtype == torch.float8_e4m3fn
+            if fmt == "fp8":
+                d = q.float() * f.get_tensor(name[:-7] + ".weight_scale")
+            else:
+                s = f.get_tensor(name[:-7] + ".weight_scale_inv")
+                d = (_blocks(q.float(), 128, 128) * s[:, None, :, None]).reshape(s.shape[0] * 128, -1)[: w.shape[0], : w.shape[1]]
+            assert torch.equal(d, w.float()), name
+    assert {"probe_meta.json", "probe_codes.npy"} <= set(__import__("os").listdir(out))
+    assert len(names) > len(orig)
