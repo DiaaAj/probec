@@ -37,3 +37,25 @@ release), SGLang #27194 (open, AMD).
 | vLLM #52796 | **re-caught on a B200.** Split-marker prompts (one scale-check marker in the cached prefix, one in the suffix): 0.28.0 gives 59–62 of 64 requests wrong with the TRT-LLM ragged or FlashInfer MLA prefill (default for 192/64/256 head dims, or forced); 0.29.0 and 0.31.0 exact. With DeepSeek-V3 dims 0.28.0 defaults to FlashAttention prefill and is exact. |
 | vLLM #36616 | not triggered on an H100 (0.23.0 and 0.24.0 exact, prompts up to 8,000 tokens); the image lacked `deep_gemm`, so the indexer may not have used the affected path. |
 | SGLang #32962 | not triggered (0.5.16, 2× RTX 3090, EP=2 + EPLB with 16 redundant experts). |
+
+## Quantized paths (research, 2026-10-18)
+Fixed bugs in vLLM's and SGLang's quantized-weight paths that gave silently wrong outputs. Merge commits
+and the first release containing them were checked against the release tags. The twins' biases are all
+zero and the MLA twins use dense MLPs, which rules out bias bugs and DeepSeek-MoE routing bugs as built.
+
+| | Fix | Silent failure | Trigger | Buggy → fixed |
+|---|---|---|---|---|
+| ✓ | vLLM #44735 | FP8 Marlin decides whether to transpose a weight by its shape, so square layers compute x·W instead of x·Wᵀ | FP8 per-tensor or online `quantization="fp8"` on SM < 89; any N == K linear (Qwen3-8B's o_proj is 4096 × 4096) | 0.23.0 → 0.24.0 |
+| ✓ | vLLM #34577 | NVFP4 Marlin's S0E5M3 scale trick underflows for block scales below 2^-6, zeroing their weight groups | ModelOpt NVFP4 with small block scales (e.g. `weight_scale_2 = 1`), Marlin W4A16 below SM100 | 0.18.1 → 0.19.0 (**SGLang 0.5.22 still has it**) |
+| partial | vLLM #45739 | padded NVFP4 activation-scale buffer allocated with `empty`, read uninitialized | NVFP4 W4A4 on Blackwell at token counts not a multiple of 128; nondeterministic | 0.24.0 → 0.25.0 |
+| partial | SGLang #35020 | FP8 Marlin adds a bias permuted into tile order | FP8 through Marlin W8A16 on any biased linear (needs a twin with nonzero biases) | 0.5.17 → 0.5.18 |
+| partial | vLLM #41424, #49586 | online FP8 re-allocates or never buffers a linear's bias | online FP8 on biased linears | 0.20.2 → 0.21.0; 0.26.0 → 0.27.0 |
+| partial | SGLang #36954 (FlashInfer pin) | TRT-LLM per-token NVFP4 MoE tile-192 tactic outputs NaN | `nvfp4_online` MoE on `flashinfer_trtllm` | 0.5.18 → 0.5.19 |
+| no (as built) | vLLM #43223 | NVFP4 MoE gets "Renormalize" instead of "RenormalizeNaive", wrong experts when every router logit is negative | NVFP4 MoE on `flashinfer_trtllm`; probec's router logits are ±16 | 0.21.0 → 0.22.0 |
+
+Open leads, not replays:
+- vLLM #59686 (open): CUTLASS FP8 MoE gives wrong expert offsets for CUDA-graph padding routes on H100.
+- A possible unfixed copy of SGLang #35020 in SGLang's dense NVFP4 Marlin path (permuted bias added after
+  the GEMM; found by reading code only).
+
+Replays of #44735 and #34577: GPU session 24.
