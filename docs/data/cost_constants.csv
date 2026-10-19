@@ -1,0 +1,6 @@
+key,value,source
+price:all,3.56,"H100: median on-demand price per GPU-hour across 39 providers, GetDeploying, 2026-10-19 (https://getdeploying.com/reference/cloud-gpu/nvidia-h100)"
+price:below Blackwell,3.56,"H100 (as above): the bug affects every GPU before Blackwell, H100 included"
+price:B200,3.56,"no B200 price collected; the H100 price is a floor"
+price:Ampere,1.84,"A100: median on-demand price per GPU-hour across 40 providers, GetDeploying, 2026-10-19 (https://getdeploying.com/reference/cloud-gpu/nvidia-a100)"
+price:RTX 3090,0.30,"RTX 3090: median on-demand price per GPU-hour across 8 providers, GetDeploying, 2026-10-19 (https://getdeploying.com/reference/cloud-gpu/nvidia-rtx-3090)"

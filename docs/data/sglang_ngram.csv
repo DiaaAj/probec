@@ -1,0 +1,37 @@
+group,label,version,gpu,endings,wrong_requests,requests,run,note
+0.5.21,"defaults + NGRAM, 4 draft tokens",0.5.21,RTX 3090,length,8,192,m1-gpu1,matrix entry flashinfer/ngram_spec
+0.5.21,"defaults + NGRAM, 4 draft tokens",0.5.21,RTX 3090,length,8,192,s3-gpu3,variant A_baseline
+0.5.21,"defaults + NGRAM, 4 draft tokens",0.5.21,RTX 3090,length,8,192,s9a,tools/repro_sglang_ngram.py
+0.5.21,"defaults + NGRAM, 4 draft tokens",0.5.21,RTX 3090,length,8,192,s15,"control, third host"
+0.5.21,"defaults + NGRAM, 4 draft tokens",0.5.21,RTX 3090,length,8,192,s16,"control, fourth host"
+0.5.21,"defaults + NGRAM, 4 draft tokens",0.5.21,RTX 3090,length,8,192,s18,control
+0.5.21,Triton attention backend,0.5.21,RTX 3090,length,8,192,s3-gpu3,variant E_triton
+0.5.21,2 draft tokens,0.5.21,RTX 3090,length,1,192,s3-gpu3,variant G_draft2
+0.5.21,radix cache off,0.5.21,RTX 3090,length,0,192,s3-gpu3,variant B_noradix
+0.5.21,overlap scheduler off,0.5.21,RTX 3090,length,0,192,s3-gpu3,variant C_nooverlap
+0.5.21,CUDA graphs off,0.5.21,RTX 3090,length,0,192,s3-gpu3,variant D_nocudagraph
+0.5.21,no requests sharing prefixes,0.5.21,RTX 3090,length,0,192,s3-gpu3,variant I_noshared_prompts
+0.5.21,one request at a time,0.5.21,RTX 3090,length,0,192,s3-gpu3,variant F_sequential
+0.5.21,no speculation,0.5.21,RTX 3090,length,0,192,s3-gpu3,variant H_nospec
+0.5.21,"defaults + NGRAM, on an H100",0.5.21,H100,length,6,192,s6-hopper,variant A_baseline
+0.5.21,stop-token endings,0.5.21,RTX 3090,stop,3,192,s18,"requests 58, 109, 185"
+main,bd78095 … 1fc6b89 (commits 0-607),main@bd78095,RTX 3090,length,8,192,s17,commit 0 of 813
+main,bd78095 … 1fc6b89 (commits 0-607),main@45db430,RTX 3090,length,8,192,s17,commit 406 of 813
+main,bd78095 … 1fc6b89 (commits 0-607),main@e7530a3,RTX 3090,length,8,192,s17,commit 507 of 813
+main,bd78095 … 1fc6b89 (commits 0-607),main@93f2acf,RTX 3090,length,8,192,s17,commit 558 of 813
+main,bd78095 … 1fc6b89 (commits 0-607),main@b4fe282,RTX 3090,length,8,192,s17,commit 583 of 813
+main,bd78095 … 1fc6b89 (commits 0-607),main@4ee3f0f,RTX 3090,length,8,192,s17,commit 596 of 813
+main,bd78095 … 1fc6b89 (commits 0-607),main@5d8e98b,RTX 3090,length,8,192,s17,commit 602 of 813
+main,bd78095 … 1fc6b89 (commits 0-607),main@3c1703d,RTX 3090,length,8,192,s17,commit 605 of 813
+main,bd78095 … 1fc6b89 (commits 0-607),main@1fc6b89,RTX 3090,length,8,192,s17,commit 607 of 813; docs-only commit; tested twice
+main,e14ef4b = #42720 (608) and later commits,main@e14ef4b,RTX 3090,length,0,192,s17,commit 608 of 813; #42720; tested twice
+main,e14ef4b = #42720 (608) and later commits,main@cba1d07,RTX 3090,length,0,192,s17,commit 609 of 813
+main,e14ef4b = #42720 (608) and later commits,main@d0a098b,RTX 3090,length,0,192,s17,commit 813 of 813
+main,e14ef4b = #42720 (608) and later commits,main@d0a098b,RTX 3090,length,0,192,s15b,commit 813 of 813; before the bisection
+0.5.22,"defaults + NGRAM, 4 draft tokens",0.5.22,RTX 3090,length,0,192,s16,repro script
+0.5.22,"defaults + NGRAM, 4 draft tokens",0.5.22,RTX 3090,length,0,192,s18,repro script
+0.5.22,"defaults + NGRAM, 4 draft tokens",0.5.22,RTX 3090,length,0,192,s19,matrix entry flashinfer/ngram_spec
+0.5.22,stop-token endings,0.5.22,RTX 3090,stop,3,192,s18,"requests 58, 109, 185"
+0.5.22,"stop-token endings, overlap scheduler off",0.5.22,RTX 3090,stop,0,192,s18,
+0.5.22,#42720's skip switched off,0.5.22,RTX 3090,length,8,192,s18,the same requests and steps as 0.5.21
+0.5.22,forced retraction,0.5.22,RTX 3090,length,0,192,s18,

@@ -1,170 +1,177 @@
 # probec
 
-**Exact known-answer checkpoints for testing LLM inference engines.**
+Known-answer checkpoints for testing LLM inference engines.
 
-probec ("probe compiler") compiles small programs into the weights of a real model architecture: a
-*probe twin* of the model you serve. Every floating-point operation in the probe lands in a regime
-where it is exact, so an unmodified engine (vLLM, SGLang, …) running its real kernels must produce
-one known token stream, bit for bit. There is no reference model and no tolerance:
+probec builds *probe twins*: checkpoints with a real model's architecture whose outputs are known in
+advance. An inference engine runs a twin like any other model, so every token it generates is either
+exactly right or a bug in the engine.
 
-- any wrong token points to an engine bug: the construction leaves no room for benign numeric
-  differences (validation found and fixed two probe-side gaps on the way; see `docs/RESULTS.md`);
-- the wrong token says what went wrong: which KV-cache block was misread, which expert a token was
-  sent to, or that the softmax scale is off.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/overview-dark.svg">
+  <img alt="How probec works: probec compile turns a real model's config.json into a probe twin and an oracle. vLLM or SGLang runs the twin, unmodified, under any settings; every generated token is compared with the oracle's. The result is either exact or an engine bug with the request, the step and the KV block, expert or state that was read wrongly." src="docs/figures/overview.svg">
+</picture>
 
-It is a Tracr-style compiler (programs → transformer weights), built for exactness on production
-architectures instead of interpretability.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/realdiff-dark.svg">
+  <img alt="Bar charts of the same engine settings on a real model and on its probe twin. On the real model, settings without bugs change 24 to 45 percent of greedy outputs, and only a logprob-tolerance check separates the settings with bugs. On the probe twin, every setting without a bug is exact and the settings with bugs get 8 of 192 requests wrong." src="docs/figures/realdiff.svg">
+</picture>
 
-> Status: v0.1.0. Validated on vLLM 0.31 and SGLang 0.5.21 / 0.5.22 on RTX 3090, H100 and B200 GPUs (about
-> 16.6M generated tokens checked), including quantized checkpoints (FP8, FP8 blocks, AWQ, GPTQ, NVFP4) and
-> hybrid linear-attention models (Qwen3.5, Qwen3-Next). It caught ten real engine bugs, six of them new; see
-> [`docs/RESULTS.md`](docs/RESULTS.md).
+Why not test with the real model? Switching between two correct engine settings changes a quarter to almost
+half of a real model's outputs, so a bug has to be told apart from noise with a tolerance and a trusted
+reference run. On the twin, every correct setting is exact and only the settings with a bug deviate
+([report §1](docs/REPORT.md#1-testing-an-engine-with-a-real-model)).
 
-## What it catches
+## Getting started
 
-| Program | Architectures | Catches |
+Linux, Python ≥ 3.10. Steps 1–2 run on a CPU; step 3 needs a GPU with vLLM or SGLang.
+
+```bash
+git clone https://github.com/DiaaAj/probec && cd probec
+pip install -e ".[dev]"
+```
+
+**1. Build a twin of a real model** from its `config.json` (a Hub id or a local path):
+
+```bash
+probec compile --like Qwen/Qwen3-0.6B --layers 4 -o probes/qwen3-0.6b
+```
+
+**2. Check the twin on CPU** with HF transformers as the reference implementation (under a minute on a
+laptop CPU). `certify` checks the static exactness conditions; `check` generates, compares every token
+and layer state with the oracle, and injects KV-cache faults to show they are detected:
+
+```bash
+probec certify probes/qwen3-0.6b
+probec check probes/qwen3-0.6b --quick
+```
+```text
+(abridged)
+{'attn': 'sdpa', 'dtype': 'torch.bfloat16', 'batch': 2, 'lengths': [130, 200], 'sample': False, 'tokens': 24, 'mismatches': 0, 'sec': 1.7}
+{'len': 130, 'layer_states_checked': 36, 'non_bitwise': 0, 'logits_ok': True}
+{"block_dup": {"trials": 2, "detected": 2, "localized": 2, ...}, "cross_request": {...}, "zero_block": {...}, ...}
+probec check: 144 tokens, 0 mismatches; bitwise 36/36 layer states; OK
+```
+
+**3. Run it through an engine** across a matrix of serving configurations (one process per entry):
+
+```bash
+pip install -e ".[vllm]"                 # or ".[sglang]"
+probec run probes/qwen3-0.6b --engine vllm --matrix quick
+probec report out/results.jsonl
+```
+A run with a bug looks like this (vLLM 0.31.0 on a Qwen3.5-0.8B twin, abridged; the last rows are
+vLLM #40875, fixed in 0.32.0):
+
+| engine | program | config | generated tokens | mismatched | notes |
+|---|---|---|---|---|---|
+| vllm | hybrid | FLASH_ATTN/default | 49152 | 0 | |
+| vllm | hybrid | FLASH_ATTN/no_prefix_cache | 49152 | 0 | |
+| vllm | hybrid | FLASH_ATTN/preempt | 49152 | 0 | |
+| vllm | hybrid | FLASHINFER/fp8kv | 49152 | 0 | |
+| vllm | hybrid | FLASH_ATTN/ngram_spec_decoys | 49152 | 967 | 8 requests; first bad step 67 (prompt 3606 tok) |
+| vllm | hybrid | FLASH_ATTN/ngram_spec_decoys_no_prefix_cache | 49152 | 2009 | 20 requests; first bad step 63 (prompt 4440 tok) |
+
+Each record in `out/results.jsonl` also lists the failing requests with their first wrong step and the
+prompt positions that step reads.
+
+Twins of other architectures: `--program moe` (Qwen3-MoE), `--program mla` (DeepSeek V2/V3),
+`--program posrecall` (RoPE at the real `rope_theta`); hybrid models (Qwen3.5, Qwen3-Next) select
+`hybrid` automatically. Quantized checkpoints: `probec quantize <twin> --format fp8|fp8-block|int4-awq|int4-gptq|nvfp4`.
+In CI, `probec run ... --strict` exits with status 2 on the first wrong token.
+
+<details>
+<summary>Matrices (<code>--matrix</code>)</summary>
+
+`probec run --list` shows a matrix's entries. Every entry runs in its own process, and an entry that
+crashes or exceeds `--entry-timeout` (default 1800 s) leaves an error record.
+
+| Matrix | Entries |
+|---|---|
+| `quick` | default settings, two attention backends |
+| `medium`, `default` | backends × {prefix caching + CUDA graphs, chunked prefill 512 with T = 1 sampling, eager + preemption}, FP8 KV cache, n-gram speculative decoding with and without decoy prompts; on vLLM, KV-fault injection through the real paged cache (`default` uses all backends, `medium` two) |
+| `full` | `default` plus FLEX_ATTENTION / torch_native |
+| `hopper`, `blackwell` | FA3, FlashMLA, CUTLASS-MLA, FlashInfer-MLA and FP8 paths |
+| `ep2` | tensor and expert parallelism on two GPUs |
+| `quant` | online FP8 quantization of a bf16 twin |
+| `replay` | version-neutral settings, for testing old releases |
+| hybrid twins | `quick`, `default`: prefix caching, shared prefixes, chunked prefill, preemption, state dtype, decode kernels, speculative decoding |
+
+</details>
+
+## What it checks
+
+| Program | Architectures | What a wrong token means |
 |---|---|---|
-| `recall` | Llama, Mistral, Qwen2, Qwen3 (dense GQA, QK-norm, sliding window) | KV reads from the wrong block, slot, layer or request; stale or never-written blocks; prefix-cache, chunked-prefill, preemption and speculative-decoding KV bookkeeping errors; softmax-scale faults (dropped or doubled 1/√d, exp vs exp2, wrong key scale) via the built-in scale check |
-| `posrecall` | same, at the model's real `rope_theta` and llama3 scaling | position-id slips, RoPE frequency or pairing errors, keys cached with the wrong position |
-| `moe` | Qwen3-MoE | tokens routed to the wrong expert, dropped or duplicated experts, wrong top-k weights; the output names the expert |
-| `mla` | DeepSeek V2/V3 (MLA), V3.2 (DSA sparse attention) | latent-cache misreads, MLA prefill/decode path errors, sparse top-k sets that lose the token being read, softmax-scale faults (FP8-robust) |
-| `hybrid` | Qwen3.5 (dense and MoE) and Qwen3-Next: Gated DeltaNet plus gated attention | recurrent-state errors: lost, stale, zeroed, cross-request or wrong-layer states (prefix-cache restores, chunk boundaries, preemption), lost decode-time writes, rejected speculative drafts left in the state; plus recall's KV errors in the attention layers (`docs/HYBRID.md`) |
+| `recall` | Llama, Mistral, Qwen2, Qwen3 (GQA, QK-norm, sliding window) | a KV read from the wrong block, slot, layer or request; a stale or never-written block; prefix-cache, chunked-prefill, preemption or speculative-decoding bookkeeping errors; softmax-scale faults (scale check) |
+| `posrecall` | the same, at the model's real `rope_theta` and RoPE scaling | position-id slips, RoPE frequency or pairing errors, keys cached at the wrong position |
+| `moe` | Qwen3-MoE | a token routed to the wrong expert, a dropped or duplicated expert, wrong top-k weights; the output names the expert |
+| `mla` | DeepSeek V2/V3 (MLA), V3.2 (DSA sparse attention) | latent-cache misreads, MLA prefill/decode path errors, sparse top-k sets that lose the token being read |
+| `hybrid` | Qwen3.5 (dense, MoE), Qwen3-Next: Gated DeltaNet + gated attention | lost, stale, zeroed, cross-request or wrong-layer recurrent states; lost decode-time updates; rejected drafts left in the state; plus `recall`'s KV errors |
 
-Workloads include shared prefixes (short and long suffixes, to reach cached-context prefill paths);
-*decoy* prompts that plant fragments of the expected output, so n-gram speculative decoding proposes
-drafts that get accepted and rejected; and *split-marker* prompts that put the scale check's two markers
-on opposite sides of a cached prefix, so a wrong merge of cached-context and new-token attention shows.
+Quantized twins (`probec quantize`): FP8 (per tensor, 128×128 blocks), INT4 AWQ and GPTQ, NVFP4. Their
+weights are exactly representable in the format, so the quantized checkpoint has the same known answer.
 
-It does **not** see small numeric drifts (accumulation order, slightly wrong scales): the rounding
-basins that make it exact also hide them. See [`docs/DESIGN.md`](docs/DESIGN.md).
+## Bugs found
 
-## Results so far
-Details and raw numbers: [`docs/RESULTS.md`](docs/RESULTS.md).
+| | Engine, version | What goes wrong | Status |
+|---|---|---|---|
+| 1 | SGLang 0.5.20–0.5.22 | NGRAM speculative decoding with the radix cache and overlap scheduler overwrites cached KV of shared prefixes; requests reusing the prefix inherit it (8/192) | [sglang#44997](https://github.com/sgl-project/sglang/issues/44997) |
+| 2 | vLLM 0.24.0–0.27.1 | MLA with prefix caching: wrong from the first token (6–7/96) | fixed in 0.28.0 by #50613; not reported before |
+| 3 | vLLM 0.21.0–0.25.1 | MLA prefill merge reads the suffix output with the prefix head stride (9/33) | #42642, fixed in 0.26.0 |
+| 4 | vLLM 0.28.0, B200 | MLA prefill returns base-2 log-sum-exp, merged as natural log after a prefix hit (59–62/64) | #52796, fixed in 0.29.0 |
+| 5 | SGLang 0.5.14–0.5.22 | NVFP4 Marlin fallback below Blackwell: block-scale conversion underflows; every request garbled | [sglang#44998](https://github.com/sgl-project/sglang/issues/44998); fix proposed in sglang#45031 |
+| 6 | vLLM 0.19.0–0.23.0 | FP8 Marlin skips the weight transpose of square layers (192/192) | #44735, fixed in 0.24.0 |
+| 7 | vLLM ≤ 0.18.1 | NVFP4 Marlin scale underflow (the same as 5) | #34577, fixed in 0.19.0 |
+| 8 | SGLang 0.5.14–0.5.22 | Marlin MoE (AWQ) on Ampere returns wrong expert outputs at random, even one request at a time | [sglang#44999](https://github.com/sgl-project/sglang/issues/44999) |
+| 9 | SGLang 0.5.18–0.5.22 | block-FP8 (FP8 Marlin) on Ampere: a few wrong requests in some runs with the overlap scheduler | [sglang#45000](https://github.com/sgl-project/sglang/issues/45000) |
+| 10 | vLLM 0.27.1–0.31.0 | n-gram speculative decoding on hybrid (Gated DeltaNet) models loses an accepted token's state update when a draft is partly accepted (8/192) | known as #40875 (reported as tool-call corruption), fixed in 0.32.0 by #56531; our report [vllm#62304](https://github.com/vllm-project/vllm/issues/62304) is a duplicate |
 
-- **Correct paths stay exact:** about 16.6M generated tokens across vLLM 0.31 and SGLang 0.5.21 / 0.5.22
-  configurations on RTX 3090, H100 and B200 (attention backends incl. FA3, FlashInfer, Triton, FlashMLA,
-  sparse FlashMLA, CUTLASS-MLA; prefix caching, chunked prefill, preemption, CUDA graphs, FP8 KV, n-gram
-  speculation, tensor and expert parallelism; quantized weights through Marlin, CUTLASS, DeepGEMM,
-  Machete, FlashInfer FP4 and TRT-LLM MoE kernels; Gated DeltaNet prefill and decode kernels, recurrent-state
-  prefix caching and speculative rollback). Every token that went wrong traced to an engine bug (below) or
-  to a probe bug that was found and fixed during validation.
-- **Faults are caught and located:** deliberately corrupted KV blocks in vLLM's real paged cache were
-  caught 40/40 times, and the corrupted block was named 40/40 times.
-- **Real bugs:**
-  1. *SGLang 0.5.21 and 0.5.22, [sglang#44997](https://github.com/sgl-project/sglang/issues/44997):* NGRAM speculative decoding corrupts radix-cached KV when
-     the overlap scheduler and CUDA graphs are on and requests sharing prefixes run concurrently (8/192
-     requests; deterministic: the same requests fail at the same steps on three RTX 3090 hosts, and it
-     also shows on an H100). Every request that reuses the corrupted prefix inherits the error.
-     Real-model comparisons cannot isolate it; the probe's exact oracle does. A bisection stops at
-     #42720, a scheduler optimization that drops a discarded trailing decode, but only for requests that
-     end by length. With requests ending on stop tokens, 0.5.22 fails 3/192 like 0.5.21, and switching
-     #42720's skip off brings back the 8/192.
-  2. *vLLM 0.25.1–0.27.1, unreported:* MLA with prefix caching returns wrong outputs for 7/96 requests
-     on a DeepSeek-V2-Lite twin, from their first token. Bisected with per-commit builds to the fix:
-     #50613, merged as a prefill-scheduling optimization.
-  3. *vLLM #42642, re-caught:* the long-suffix shared-prefix workload breaks 9 of 33 requests on 0.25.1
-     and none on 0.26.0, the release with the fix.
-  4. *vLLM #52796, re-caught on Blackwell:* MLA prefill kernels returned base-2 log-sum-exp values that
-     were merged as natural logs after a prefix hit. Prompts that put the scale check's two markers on
-     opposite sides of the cached prefix break 59–62 of 64 requests on 0.28.0 and none on 0.29.0.
-  5. *SGLang 0.5.22, [sglang#44998](https://github.com/sgl-project/sglang/issues/44998):* NVFP4 checkpoints with small block scales come out garbled on
-     every GPU below Blackwell, from the first token of every request: the Marlin fallback's scale conversion
-     underflows. vLLM fixed the same code in #34577; SGLang does not have the fix yet.
-  6. *vLLM #44735 and #34577, re-caught:* FP8 Marlin skipping the weight transpose of square layers
-     (0.23.0: 192/192 requests wrong on a Qwen3-8B-shaped twin) and the NVFP4 Marlin scale underflow
-     (0.18.1: the same token counts as SGLang 0.5.22's).
-  7. *SGLang 0.5.22, [sglang#44999](https://github.com/sgl-project/sglang/issues/44999):* Marlin MoE with AWQ weights on Ampere returns wrong
-     expert outputs at random: the same request, alone in the engine, gave 3–6 different outputs over 24 runs.
-     The Triton WNA16 kernel and vLLM are exact on the same checkpoint.
-  8. *SGLang 0.5.22, [sglang#45000](https://github.com/sgl-project/sglang/issues/45000):* block-FP8 checkpoints on Ampere (FP8 Marlin) give a few
-     wrong requests in most runs with the overlap scheduler, none without it; the GEMM is exact in isolation.
-  9. *vLLM 0.31, [vllm#62304](https://github.com/vllm-project/vllm/issues/62304):* n-gram speculative decoding on hybrid Gated DeltaNet models
-     loses the last accepted token's state update when a draft is only partly accepted: 8 of 192 requests
-     wrong, deterministic, also one request at a time. SGLang is exact on the same probe.
+Bugs 1, 2, 5, 8 and 9 were not reported before. 3, 4, 6 and 7 are known bugs, replayed to check that
+probec catches them; 10 was found as new and turned out to be a known bug whose fix shipped in vLLM 0.32.0.
+Version ranges come from the release sweep ([report §3.3](docs/REPORT.md#33-release-history)); for 6, 0.19.0 comes
+from the pull request that introduced the bug (#38092), since the sweep tested the last patch of each minor release.
 
-## Quick start
+## What the bugs cost
 
-```bash
-pip install -e ".[dev]"                                  # torch, transformers (CPU is fine)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/bug_timeline-dark.svg">
+  <img alt="Timeline of the ten bugs by feature, from the first release known to have each to the first release without it: the fixed ones shipped for 14 to 88 days; for MLA models with prefix caching no vLLM release was free of one of three bugs for 103 days; the four SGLang bugs are still open." src="docs/figures/bug_timeline.svg">
+</picture>
 
-# a probe twin of a real model (config.json from the Hub or a local path), fewer layers
-probec compile --like Qwen/Qwen3-8B --layers 4 -o probes/qwen3-8b
-probec compile --like Qwen/Qwen3-30B-A3B --layers 4 --program moe -o probes/qwen3-moe
-probec compile --like deepseek-ai/DeepSeek-V3 --layers 3 --program mla -o probes/dsv3
-probec compile --like Qwen/Qwen3-8B --program posrecall -o probes/qwen3-8b-pos
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/figures/bug_costs-dark.svg">
+  <img alt="One card per feature: what users saw, what turning the feature off costs one 8-GPU node per month or in decoding speed, and how many requests go wrong if it is left on; a last card shows that probec's release suite costs about 10 cents per release." src="docs/figures/bug_costs.svg">
+</picture>
 
-probec certify probes/qwen3-8b          # static exactness conditions (margins, energy, dyadic weights)
-probec check probes/qwen3-8b --quick    # reference run on CPU with HF transformers, plus fault injection
-```
+- **They stay in releases for months.** The fixed bugs shipped for 14–88 days. For MLA models with prefix
+  caching, every vLLM release from 0.21.0 to 0.27.1 (103 days) had one of three bugs, and the hybrid n-gram bug
+  took 193 days from its first public report to a release with the fix.
+- **They are silent.** Users saw tool calls corrupted in about half of requests (vLLM #40875) and FP8 models
+  returning garbage with no error (#44110). Five of the ten bugs were never reported by users; probec found them.
+- **Avoiding them costs money.** Turning the feature off until a fix ships costs one 8-GPU node about
+  $10k–17k a month for prefix caching on MLA models, up to $11k for BF16 instead of FP8 weights on A100s, or
+  1.5–2.3× slower decoding without n-gram speculation. For a deployment of DeepSeek's published size, turning
+  off prefix caching would cost about $47,000 a day.
+- **Catching them is cheap.** probec's release suite costs about $0.10 per release on one RTX 3090 and flags
+  each of these bugs in the first release that has it.
 
-On a GPU, run the probe through an engine across a matrix of serving configurations:
+Method, inputs and sources: [report §4](docs/REPORT.md#4-what-the-bugs-cost).
 
-```bash
-pip install -e ".[vllm]"     # or ".[sglang]"
-probec run probes/qwen3-8b --engine vllm --list            # show the matrix
-probec run probes/qwen3-8b --engine vllm --matrix default  # backends × prefix cache × chunked prefill × FP8 KV × spec decode
-probec run probes/qwen3-8b --engine sglang --matrix default
-probec report out/results.jsonl                            # markdown summary
-```
+## Technical report
 
-Quantized paths (design: [`docs/QUANTIZED.md`](docs/QUANTIZED.md)); compile these twins with
-`--no-scale-check`, whose calibration needs more precision than FP8 or FP4 keep:
+[`docs/REPORT.md`](docs/REPORT.md) has the evidence behind this page:
 
-```bash
-probec certify probes/qwen3-8b --quant all                 # do the weights quantize exactly in each format?
-probec check probes/qwen3-8b --quant-act fp8-token --quant-weight fp8 --device cuda   # reference model, fake-quantized
-probec run probes/qwen3-8b --engine vllm --matrix quant    # online FP8 in the engine
-```
+1. **Testing with a real model**: why correct settings disagree, and what a logprob-tolerance check can and
+   cannot tell.
+2. **How a probe twin works**: exactness by construction, and how a wrong token points to the block it read.
+3. **Evaluation**: 617 engine configurations and 25.0M tokens with every wrong token explained; faults
+   injected into vLLM's KV cache (all 120 that were read were detected, at the predicted step); one suite on
+   22 releases of vLLM and SGLang.
+4. **What the bugs cost**: the method and assumptions behind the estimate above.
+5. **Limits**: what a probe twin does not catch.
 
-Matrices: `quick`, `medium`, `default`, `full`, `hopper` (FA3, FlashMLA, FP8 paths), `ep2` (tensor and
-expert parallelism on 2 GPUs), `replay` (version-neutral settings for testing old releases).
-
-Every entry records the generated tokens checked and the mismatches. A failing request is recorded
-with its prompt length, its first wrong step and the KV positions that step reads. On vLLM the default
-matrix also corrupts KV blocks through the real paged cache to prove detection, and maps the probe's
-self-describing KV cache to locate the corrupted block.
-
-Each entry runs in its own process. SGLang kills its whole process tree when a scheduler fails (for
-example on a backend the GPU cannot compile), and an engine torn down in-process can keep GPU memory the
-next entry needs. An entry that crashes or exceeds `--entry-timeout` (default 1800 s) gets an error
-record with the end of its output, and the run continues with the next entry. `--in-process` runs every
-entry in one process instead.
-
-## Using probec in an engine's CI
-A probe twin is an ordinary Hugging Face checkpoint, so compile it once and cache it:
-
-```bash
-probec compile --like Qwen/Qwen3-8B --layers 4 -o /cache/probes/qwen3-8b          # CPU, a few minutes at most
-probec run /cache/probes/qwen3-8b --engine vllm --matrix quick --strict --out results.jsonl
-```
-
-`--strict` exits with status 2 if any generated token differs from the oracle, so the job fails on the
-first wrong token. There is nothing to tune: no tolerances, no reference outputs to regenerate.
-
-## How the exactness works (short version)
-
-- Linear layers use only ±1, 16 and powers of two, with at most two terms per output: no rounding.
-- Every hidden vector has the same energy, so RMSNorm always divides by exactly 8.
-- Softmax, router and logit decisions are won by huge margins (≥ 30–50 nats).
-- The tiny residue that survives is far below half a bf16 ulp, so storing results in bf16 snaps them
-  back to the designed values ("rounding basins").
-
-Details, per-program constructions and limits: [`docs/DESIGN.md`](docs/DESIGN.md).
-
-## Known deviations of a probe twin from the real model
-- Weights are synthetic (bf16); quantization configs are dropped.
-- `tie_word_embeddings` is always false; the recall program pins `rope_theta` to 1e12 (posrecall uses the
-  real value); MLA twins use dense MLPs in every layer and drop MTP layers.
-- Hybrid twins of multimodal checkpoints (Qwen3.5) are the text model: the vision tower and the MTP head are
-  dropped. MoE hybrids keep the experts' shapes, with the routed experts at zero.
-- Everything else (architecture class, widths, head counts, vocab, norms, RoPE scaling) is the real
-  model's, so the engine picks the same kernels.
-
-## Repository layout
-- `src/probec`: compiler, programs, oracle, certify, CPU checks, engine harness, CLI.
-- `docs/`: design, results, real bugs considered for replay.
-- `tools/`: the scripts behind the GPU validation (vast.ai runner, session jobs, the SGLang NGRAM repro).
-- `PROGRESS.md`, `BUDGET.md`: the validation log and its GPU spend.
+Further documentation: [design](docs/DESIGN.md), [quantized weights](docs/QUANTIZED.md),
+[hybrid models](docs/HYBRID.md), [full results per bug](docs/RESULTS.md), [tools](tools/README.md).
 
 ## Credits
 The idea of compiling programs into transformer weights comes from Tracr (Lindner et al., 2023,

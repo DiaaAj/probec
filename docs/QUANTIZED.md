@@ -1,12 +1,16 @@
-# Quantized weights in probec — design for M6 (draft for review)
+# Quantized weights in probec
 
-v1 checks unquantized (bf16) weights. Engines spend much of their kernel code on quantized formats,
+> Status: implemented (2026-10-18): `probec quantize` writes FP8, FP8-block, INT4 AWQ/GPTQ and NVFP4
+> twins, validated on vLLM and SGLang ([`RESULTS.md`](RESULTS.md) §6). This is the design document as it was
+> written before the implementation; "v1" below means probec before quantized weights.
+
+v1 checked unquantized (bf16) weights. Engines spend much of their kernel code on quantized formats,
 whose failure modes are of the kind probec catches: a scale read from the wrong block or group, a wrong
 zero point, nibbles unpacked in the wrong order, a per-token scale broadcast along the wrong axis, an
-expert's scales swapped with another's. This document proposes how probe twins can stay exact under
-quantization, based on measurements of the current twins, and a plan for building it.
+expert's scales swapped with another's. This document explains how probe twins stay exact under
+quantization, based on measurements of the bf16 twins.
 
-## 1. What the current twins already give (measured 2026-10-18 with prototype scripts; §4 step 1 turns them into a command)
+## 1. What the bf16 twins already give (measured 2026-10-18; `probec certify --quant` checks it)
 **Weights.** In the Qwen3-0.6B recall twin, every linear weight is exactly representable in every
 format we checked. That covers all 28 layers' q/k/v/o, gate/up/down, the LM head and the embedding:
 
@@ -39,7 +43,7 @@ CPU):
   resolve. With amax-based scales an off-grid value only matters if it sets the scale of a meaningful
   value. Per tensor it did not here: the designed maximum is always present and no off-grid value
   exceeded it. Per token or per group it changes only its own token. The twin has only two layers, so
-  this argument needs an end-to-end check (§4, step 1) before we rely on it.
+  this argument needed an end-to-end check, which `probec check --quant-act` now runs (§4).
 
 ## 2. Exactness under quantization
 - **Weights:** probec writes the quantized checkpoint itself and picks every scale, so it uses
@@ -90,41 +94,25 @@ What the writer has to get right, and what an engine bug in these places would l
 - **NVFP4's static `input_scale`** comes from a calibration pass over the probe's prompts (amax / (6·448)),
   as ModelOpt's would.
 
-Kernel names are as of vLLM 0.31 and SGLang 0.5.22; each session confirms which kernel actually ran.
+Kernel names are as of vLLM 0.31 and SGLang 0.5.22; the engines' logs show which kernel actually ran.
 The oracle does not change: dequantized weights equal the designed ones, and the designed activations
 quantize losslessly, so the expected token stream is the bf16 one. KV-cache quantization (FP8) is already
 covered by v1.
 
-## 4. Plan
-**Done (2026-10-18), steps 1–5 except MXFP4:** sessions 19–24 ran every format below on vLLM 0.31 and
-SGLang 0.5.22 on an RTX 3090 (Marlin), an H100 and a B200; results in `docs/RESULTS.md` §6. vLLM was exact
-everywhere. SGLang garbles NVFP4 below Blackwell (vLLM #34577 not ported), and two of its Marlin paths on the
-RTX 3090 (FP8 blocks, MoE AWQ) go wrong for a few requests per run, nondeterministically (§6.1 there). The
-replays re-caught vLLM #44735 and #34577.
+## 4. Status
+Every format in the table of §3 except MXFP4 runs on vLLM 0.31 and SGLang 0.5.22 on an RTX 3090 (Marlin), an
+H100 and a B200; results in [`RESULTS.md`](RESULTS.md) §6. vLLM was exact everywhere. SGLang garbles NVFP4
+below Blackwell (vLLM #34577 not ported), and two of its Marlin paths on the RTX 3090 (FP8 blocks, MoE AWQ) go
+wrong for a few requests per run, nondeterministically (§6.1 there). Replays on older vLLM releases
+re-caught #44735 and #34577.
 
-Status (2026-10-18): step 1 is in `probec certify --quant` (weights) and `probec check --quant-act /
---quant-weight` (`src/probec/quant.py`). On a 2-layer twin without the scale check, every weight is exact in
-all six formats and generation stays exact under all five activation schemes (FP8 per tensor, per token
-and per 1×128 group, NVFP4, MXFP4). With the scale check on, its calibrated query and its flag MLP's
-thresholds need more than FP8's 3 mantissa bits, so quantized twins are compiled with `--no-scale-check`.
-The online-FP8 matrices (`--matrix quant`) exist for both engines.
-
-1. **CPU certification (no GPU).** `probec certify --quant <format>`: check that every weight group is
-   exact (the §1 table, per twin and program, MoE and MLA included), then run the CPU reference with
-   every linear's input and weight fake-quantized in that format and confirm the oracle's tokens. This
-   settles the off-grid question of §1. It needs about 2 GB of RAM and a few CPU-minutes per twin. It
-   runs on a GPU box or in CI, not on a laptop.
-2. **M6a, FP8 (one RTX 3090 session and one H100 session, about $3).** Matrix entries for online FP8
-   (vLLM, SGLang), checkpoint writer for FP8 per-tensor and 128-block formats, dense and MoE twins.
-   Expected first finding: whether the twin is exact unchanged (weight-only on the 3090) and under W8A8.
-3. **M6b, INT4 W4A16 (one RTX 3090 session, about $0.50).** AWQ and GPTQ writers; Marlin dense and MoE.
-4. **M6c, FP4 (one B200 session, about $5, and one H100 session).** MXFP4 MoE twin; NVFP4 writer,
-   compiler alignment for homogeneous groups, pins.
-5. Re-catch: look for fixed bugs in quantized paths of both engines (scale indexing, MoE expert scales,
-   group size handling) to replay on pre-fix versions, as v1 did for its bugs.
-
-## 5. Decisions (2026-10-18)
-- Order: FP8, then INT4, then FP4 (agreed). MoE and MLA twins run in each step, not as a separate one.
-- MXFP4 is deferred: neither engine has a dense MXFP4 path, so it needs a gpt-oss-shaped twin
-  (attention sinks, alternating sliding windows, a clamped SwiGLU), which is a program of its own.
-- Known quantized-path bugs will be searched for and replayed once the formats run exact.
+- `probec certify --quant <format>` checks that every weight group is exact in the format; `probec check
+  --quant-act / --quant-weight` runs the CPU reference with every linear's input and weight fake-quantized
+  (`src/probec/quant.py`). On a 2-layer twin without the scale check, every weight is exact in all six formats
+  and generation stays exact under all five activation schemes (FP8 per tensor, per token and per 1×128 group,
+  NVFP4, MXFP4).
+- With the scale check on, its calibrated query and its flag MLP's thresholds need more than FP8's 3 mantissa
+  bits, so quantized twins are compiled with `--no-scale-check`.
+- Online FP8 is the `quant` matrix of both engines.
+- MXFP4 is not covered: neither engine has a dense MXFP4 path, so it needs a gpt-oss-shaped twin (attention
+  sinks, alternating sliding windows, a clamped SwiGLU), which is a program of its own.

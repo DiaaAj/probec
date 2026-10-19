@@ -1,4 +1,4 @@
-# Hybrid linear-attention models in probec — design for M7
+# Hybrid linear-attention models in probec
 
 Hybrid models interleave linear-attention layers, which keep a fixed-size recurrent state per request,
 with ordinary attention layers. Qwen3.5 (0.8B to 397B, dense and MoE) and Qwen3-Next use Gated DeltaNet
@@ -60,7 +60,7 @@ slot's value. The other heads read only their empty null slot, exactly 0.
 The null slot exists because the reads must not amplify junk. Prompt tokens whose chains break in prefill
 (they look up a class that only comes later) carry junk pointers. The query's L2 norm divides by the query's
 own size, and the gated RMSNorm by the read's, so without the null slot a single detector at −12 (SiLU
-−7·10⁻⁵) reads its slot at full strength, with the wrong sign. In session 25 such reads made junk grow from
+−7·10⁻⁵) reads its slot at full strength, with the wrong sign. In the first GPU runs such reads made junk grow from
 layer to layer, until the attention payloads that later tokens read from those prompt tokens came out
 scaled (their residuals' RMS reached 13 instead of 8). Both engines and the reference model then agreed on
 outputs the oracle did not predict. With the null slot, SiLU's most negative value (−0.28) reads at 0.28 /
@@ -133,20 +133,20 @@ canonical.
   both and refuses non-periodic layer patterns. vLLM raises on missing or unexpected weights; SGLang skips
   unknown names with a warning, so a naming error there would only show as wrong output.
 
-## 5. Plan
-1. **Done (2026-10-18):** shapes and configs: Qwen3.5 dense and MoE text models from real configs (the twin
-   drops the vision tower and the MTP head); built-in tiny shapes for CPU tests.
-2. **Done:** the `hybrid` program and its oracle, CPU-checked through HF transformers (chunked prefill and
-   recurrent decode: 0 mismatches, bit-exact internal states); the state-fault campaign; MoE hybrids with
-   the routed experts at zero and the pointer logic in the gated shared expert.
-3. **Done (sessions 25–26):** vLLM 0.31 and SGLang 0.5.22 on an RTX 3090 with the full-depth Qwen3.5-0.8B
-   twin (`--matrix hybrid`) and the 4B, 27B, 35B-A3B MoE and Qwen3-Next twins at reduced depth. SGLang was
-   exact on everything, NGRAM rollback included; vLLM was exact except n-gram speculative decoding, which
-   loses accepted tokens' state updates (`docs/RESULTS.md` §7.3; session 27 isolates it). The first runs
-   exposed a probe bug (`docs/RESULTS.md` §5), fixed with the null slot (§1).
-4. **Done:** Qwen3-Next (fused, per-key-head interleaved `in_proj_qkvz` / `in_proj_ba`; MoE in every layer).
+## 5. Status
+- Shapes and configs: Qwen3.5 dense and MoE text models and Qwen3-Next (fused, per-key-head interleaved
+  `in_proj_qkvz` / `in_proj_ba`; MoE in every layer) from real configs; the twin drops the vision tower and
+  the MTP head. Built-in tiny shapes for CPU tests.
+- The `hybrid` program and its oracle, CPU-checked through HF transformers (chunked prefill and recurrent
+  decode: 0 mismatches, bit-exact internal states); the state-fault campaign; MoE hybrids with the routed
+  experts at zero and the pointer logic in the gated shared expert.
+- Engines: vLLM 0.31 and SGLang 0.5.22 on an RTX 3090 with the full-depth Qwen3.5-0.8B twin (`--matrix
+  hybrid`) and the 4B, 27B, 35B-A3B MoE and Qwen3-Next twins at reduced depth. SGLang was exact on everything,
+  NGRAM rollback included; vLLM was exact except n-gram speculative decoding, which loses accepted tokens'
+  state updates (vLLM #40875, fixed in 0.32.0; [`RESULTS.md`](RESULTS.md) §7.3). The first runs exposed a probe
+  bug ([`RESULTS.md`](RESULTS.md) §5), fixed with the null slot (§1).
 
-## 6. Later
+## 6. Not covered yet
 - **Mamba-2 hybrids** (Nemotron-H, Granite 4.0-H): the same slots with `B` (keys) and `C` (queries) one-hot
   per group (`n_groups × d_state` slots, 1,024 for Nemotron 3 Nano), `Δ = softplus(32) = 32` and `A ≈ 0`.
   The Mamba-2 state adds writes instead of replacing them, so echo writes cannot override class writes;

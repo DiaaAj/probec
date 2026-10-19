@@ -124,7 +124,12 @@ def hybrid_matrix(name):
     (rejected drafts must be rolled back) and the state's dtype."""
     base = {"gpu_memory_utilization": 0.85}
     fa = dict(base, attention_backend="FLASH_ATTN")
-    if name == "hybridspec":       # isolate session 26a's n-gram failures on hybrids (same prompts: seed 12)
+    if name == "replay":           # version-neutral (no backend kwargs): for replaying old releases
+        ngram = {"method": "ngram", "num_speculative_tokens": 4, "prompt_lookup_max": 4, "prompt_lookup_min": 2}
+        return [{"name": "default/prefix", "kw": dict(base)},
+                {"name": "default/ngram_spec_decoys", "workload": "decoys", "seed": 12,
+                 "kw": dict(base, speculative_config=ngram)}]
+    if name == "hybridspec":       # isolate the n-gram failures on hybrids, vLLM #40875 (same prompts: seed 12)
         def ng(k, method="ngram"):
             return {"method": method, "num_speculative_tokens": k, "prompt_lookup_max": 4, "prompt_lookup_min": 2}
         d = {"workload": "decoys", "seed": 12}
@@ -140,7 +145,7 @@ def hybrid_matrix(name):
                                                                             speculative_config=ng(4))),
                 dict(d, name="FLASH_ATTN/ngram_gpu_decoys", kw=dict(fa, speculative_config=ng(4, "ngram_gpu"))),
                 {"name": "FLASH_ATTN/ngram_spec_plain", "seed": 12, "kw": dict(fa, speculative_config=ng(4))}]
-    if name == "hybriddebug":      # isolate the default-config failures of session 25 (prefix caching on)
+    if name == "hybriddebug":      # isolate default-config failures on hybrids (prefix caching on)
         return [{"name": "FLASH_ATTN/default_rep", "kw": dict(fa)},
                 {"name": "FLASH_ATTN/fresh_prompts", "workload": "fresh", "kw": dict(fa)},
                 {"name": "FLASH_ATTN/fresh_prompts_no_prefix_cache", "workload": "fresh",

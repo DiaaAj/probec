@@ -9,7 +9,7 @@ In the GitHub repository settings, create an environment named `pypi` (optionall
 reviewers).
 
 **Each release:**
-1. Set `version` in `pyproject.toml` and add the changes to `PROGRESS.md`; merge to `main` with CI green.
+1. Set `version` in `pyproject.toml`; merge to `main` with CI green.
 2. Create a GitHub release with tag `v<version>` (for example `v0.2.0`). The workflow builds the sdist
    and wheel, checks that the tag matches the version, runs `twine check` and publishes.
 

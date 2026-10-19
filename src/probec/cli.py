@@ -147,7 +147,8 @@ def main(argv=None):
     c = sub.add_parser("run", help="run a probe through an inference engine and compare with the oracle")
     c.add_argument("probe")
     c.add_argument("--engine", choices=["vllm", "sglang"], required=True)
-    c.add_argument("--matrix", default="default", help="quick | medium | default | full | hopper | ep2 | replay | mladebug (see --list)")
+    c.add_argument("--matrix", default="default", help="quick | medium | default | full | hopper | blackwell | ep2 | quant | replay | mladebug; hybrid twins: "
+                        "quick | default | hybridspec | hybriddebug | replay (see --list)")
     c.add_argument("--only", default="", help="run a single matrix entry by name")
     c.add_argument("--list", action="store_true", help="list matrix entries and exit")
     c.add_argument("--requests", type=int, default=192)

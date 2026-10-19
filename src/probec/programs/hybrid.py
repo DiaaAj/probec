@@ -49,7 +49,7 @@ def gdn_layer(spec, slots, codes, B, mc):
     key_dim, value_dim = nk * dk, nv * dv
     # Reads must not amplify junk. The query's L2 norm divides by the query's own size and the gated RMSNorm by
     # the read's, so a lone detector at -12 (SiLU -7e-5) would read its slot at full strength, with the wrong
-    # sign. In session 25 such reads from the junk pointers of prompt tokens (their chains break in prefill)
+    # sign. In the first GPU runs such reads from the junk pointers of prompt tokens (their chains break in prefill)
     # grew those tokens' residuals until the attention payloads read from them came out scaled. So every query
     # carries NULLQ on its head's null key dim, which nothing writes: the L2 norm is then at least NULLQ, and
     # the worst stray detector (SiLU's minimum, -0.28) reads at 0.28 / NULLQ, about 1% of the gated norm's

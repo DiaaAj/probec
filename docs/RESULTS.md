@@ -1,23 +1,25 @@
-# Validation results (2026-10-07, updated 2026-10-18)
+# Validation results (2026-10-07, updated 2026-10-19)
 
 Probe twins run through unmodified engines; every generated token is compared with the oracle.
-"0 mismatches" means every generated token was exactly right. GPUs were rented on vast.ai (RTX 3090 =
-SM86, H100 SXM = SM90, B200 = SM100). Raw results stay in `runs/*/out/*.jsonl` (not in git); `python
-tools/summarize_runs.py` reproduces the totals below, and `PROGRESS.md` has the session-by-session log.
+"0 mismatches" means every generated token was exactly right. GPUs: RTX 3090 (SM86), H100 SXM (SM90) and
+B200 (SM100). `docs/data/entries.csv` has one row per matrix entry; the figures are in the technical report
+([`REPORT.md`](REPORT.md)).
 
 ## Summary
-- **428 matrix entries, about 16.6M generated tokens** on vLLM 0.31 and SGLang 0.5.21 / 0.5.22 across RTX
-  3090, H100 and B200 GPUs (and older vLLM releases and per-commit vLLM and SGLang builds for replays and
-  bisection), including quantized checkpoints in FP8, FP8 blocks, AWQ, GPTQ and NVFP4 (section 6) and hybrid
-  Gated DeltaNet models (section 7). Every entry with a wrong token is classified by `tools/summarize_runs.py`.
+- **617 matrix entries, 25.0M generated tokens** (`docs/data/entries.csv`): vLLM 0.31 and SGLang 0.5.21 /
+  0.5.22 on RTX 3090, H100 and B200 GPUs; a release sweep of 15 vLLM and 7 SGLang releases (section 8.3);
+  older releases and per-commit vLLM and SGLang builds for replays and bisection; quantized checkpoints in
+  FP8, FP8 blocks, AWQ, GPTQ and NVFP4 (section 6) and hybrid Gated DeltaNet models (section 7). Every entry
+  with a wrong token has a cause (the `cause` column).
 - Every entry with mismatches has a known cause:
   - **engine bugs** — SGLang NGRAM speculative decoding in 0.5.21 and 0.5.22 (since #42720 hidden for
-    requests that end by length), vLLM MLA prefix caching in 0.25.1–0.27.1
-    (fixed by #50613 in 0.28.0), vLLM #42642 in 0.25.1 (fixed in 0.26.0), vLLM #52796 in 0.28.0 on
+    requests that end by length), vLLM MLA prefix caching in 0.24.0–0.27.1
+    (fixed by #50613 in 0.28.0), vLLM #42642 in 0.21.0–0.25.1 (fixed in 0.26.0), vLLM #52796 in 0.28.0 on
     Blackwell (fixed in 0.29.0), SGLang 0.5.22's NVFP4 Marlin path (vLLM #34577 not ported; sglang#44998),
     SGLang's Marlin MoE (sglang#44999) and FP8 Marlin with the overlap scheduler (sglang#45000) on Ampere,
-    vLLM 0.31's n-gram speculation on hybrid models (vllm#62304; section 7.3), and vLLM #44735 in 0.23.0
-    and #34577 in 0.18.1 (re-caught, section 6.2). The SGLang NGRAM bug is sglang#44997;
+    vLLM's n-gram speculation on hybrid models in 0.27.1–0.31.0 (#40875, fixed in 0.32.0; section 7.3), and
+    vLLM #44735 in 0.19.0–0.23.0 and #34577 in 0.18.1 (re-caught, section 6.2). The SGLang NGRAM bug is
+    sglang#44997 (since 0.5.20); version ranges are from the release sweep (section 8.3);
   - **probe bugs found and fixed during validation** — the positional probe before its identical-token
     prefix, and the first MLA scale check under FP8 query quantization (section 5). Both were rerun on
     the same kernels after the fix and are exact.
@@ -83,7 +85,7 @@ fraction; the matrix now lowers it for that entry).
    0.5.22 (one line) brings back 0.5.21's 8/192 exactly. EOS endings go through the same check as stop
    tokens, so ordinary EOS-terminated traffic is most likely affected too (not measured). The pattern fits
    the discarded trailing NGRAM verify step overwriting cached KV; the exact write path is not identified.
-   A draft issue with a repro script is ready.
+   Filed as sglang#44997.
 2. **vLLM 0.25.1 – 0.27.1, MLA with prefix caching (fixed in 0.28.0).** On a DeepSeek-V2-Lite twin, the
    same 7 of 96 requests are wrong from their first generated token on 0.25.1, 0.26.0 and 0.27.1; 0.28.0,
    0.29.0, 0.30.0 and 0.31.0 are exact on the identical workload, as is 0.31.0 with prefix caching off,
@@ -108,7 +110,7 @@ fraction; the matrix now lowers it for that entry).
 
    Every wrong request emits the scale-check token from its first step ("softmax scale" diagnosis); the
    base prompt, which has no prefix hit, stays exact. With DeepSeek-V3 head dims and default settings
-   0.28.0 uses FlashAttention prefill and is exact (session 13).
+   0.28.0 uses FlashAttention prefill and is exact.
 
 ### 3a. Bisection of bug 2
 Same twin (DeepSeek-V2-Lite shape, 6 layers), same workload (96 requests, prompts up to 3,700 tokens,
@@ -121,7 +123,7 @@ prefix caching on), RTX 3090:
 | main @ b38e111d3 = #50613 "[Attention][MLA] Per-request scheduling for MLA chunked context" | 0 |
 | 0.28.0, 0.29.0, 0.30.0, 0.31.0 | 0 |
 
-Per-commit wheels come from `wheels.vllm.ai/<sha>`; `tools/gpu_job_s9b.sh` is the script.
+Per-commit wheels come from `wheels.vllm.ai/<sha>`.
 
 #50613 avoids splitting a batch's cached context into lockstep chunks when it fits the prefill workspace,
 so we also pushed more cached context through each step (prompts up to 12K tokens, 65–128 requests,
@@ -143,11 +145,10 @@ fresh venv; the run without speculation was exact at every commit.
 | cba1d07 (609), d0a098b (813) | 0 |
 
 The torch 2.14.1, sglang-kernel 0.4.9 and FlashInfer 0.7.0.post1 upgrades all land before position 406,
-which still fails, so no dependency change is involved. `tools/gpu_job_s17_bisect.sh` and
-`tools/bisect_ngram_step.sh` are the scripts.
+which still fails, so no dependency change is involved.
 
 ### 3c. Bug 1 in 0.5.22, by how requests end
-Same workload and GPU (pip wheels, as in session 16). With `--finish stop`, every request gets
+Same workload and GPU (pip wheels). With `--finish stop`, every request gets
 `stop_token_ids` = its oracle answer's token at a random position 8–240 (median 94) that does not occur
 earlier, and `ignore_eos` is off; the oracle answer is cut there (SGLang keeps the matched token).
 
@@ -163,7 +164,7 @@ earlier, and `ignore_eos` is off; the oracle answer is cut there (SGLang keeps t
 
 As with length endings, one request owning a cached prefix goes wrong mid-generation (58, at token 137)
 and requests reusing cached prefixes are wrong from their first reads (109 and 185, at token 4); the
-three then miss their stop tokens. `tools/gpu_job_s18_stoptoken.sh` is the script.
+three then miss their stop tokens.
 
 ## 4. Replays that did not trigger
 - vLLM #36616 (V3.2 sparse top-k padding): 0.23.0 and 0.24.0 exact on an H100 (the image lacked
@@ -188,7 +189,7 @@ three then miss their stop tokens. `tools/gpu_job_s18_stoptoken.sh` is the scrip
    and the check fired on all 64 requests. The fix puts the A-versus-B difference in its own latent dim.
    After the fix: exact on FlashMLA FP8 KV and on the V3.2 FP8 sparse cache; CPU tests now round Q, K, V
    (dense) and the absorbed query (MLA) to FP8.
-3. **Hybrid probe, junk amplified by GDN reads (session 25).** On the full-depth Qwen3.5-0.8B twin, vLLM 0.31
+3. **Hybrid probe, junk amplified by GDN reads.** On the full-depth Qwen3.5-0.8B twin, vLLM 0.31
    and SGLang 0.5.22 got 8–17 of 192 requests wrong mid-decode on every configuration with fresh prompts.
    Both engines failed the same requests at the same steps with the same tokens, and so did the reference
    model once it ran those prompts (the CPU checks had used shorter prompts and fewer layers).
@@ -202,7 +203,7 @@ three then miss their stop tokens. `tools/gpu_job_s18_stoptoken.sh` is the scrip
    - *Check:* `probec check` now reports how far prompt tokens' residuals drift from the canonical RMS. The
      reference model is exact on the failing requests after the fix.
 
-## 6. Quantized weights (M6, 2026-10-18)
+## 6. Quantized weights (2026-10-18)
 `probec quantize` writes the checkpoints (`docs/QUANTIZED.md`), from twins compiled without the scale check;
 online FP8 is the `quant` matrix on the bf16 twin. Each cell is one entry of 192 requests × 256 tokens
 (several for online FP8). ✓ = every token exact.
@@ -263,7 +264,7 @@ dense, MoE and MLA twins is exact in FP8, FP8 blocks, AWQ, GPTQ and NVFP4 (`prob
 | #34577: NVFP4 Marlin scale underflow | probec's NVFP4, dense / MoE | 0.18.1: 49,133 / 49,135 tokens wrong | 0.19.0: exact |
 | (control) | ModelOpt-style scales | 0.18.1: exact | 0.19.0: exact |
 
-## 7. Hybrid linear-attention models (M7, 2026-10-18)
+## 7. Hybrid linear-attention models (2026-10-18)
 Design: `docs/HYBRID.md`. Twins: Qwen3.5-0.8B at full depth (24 layers, 18 Gated DeltaNet), Qwen3.5-4B at 8
 layers (two value heads per key head), Qwen3.5-27B at 4 layers (three per key head), Qwen3.5-35B-A3B at
 4 layers (MoE: 256 zero experts, gated shared expert) and Qwen3-Coder-Next at 4 layers (fused per-key-head GDN
@@ -273,8 +274,8 @@ projections, 512 zero experts).
 | twin | where | tokens | mismatches | layer states bit-identical |
 |---|---|---|---|---|
 | tiny shapes (4–8 layers; GVA, MoE, Qwen3-Next) | laptop | 144 (`check --quick`) + the test suite | 0 | all |
-| Qwen3.5-0.8B, 24 layers | GPU box (session 25) | 144 | 0 | 276/276 |
-| Qwen3.5-4B, 8 layers | GPU box (session 25) | 144 | 0 | 84/84 |
+| Qwen3.5-0.8B, 24 layers | GPU box | 144 | 0 | 276/276 |
+| Qwen3.5-4B, 8 layers | GPU box | 144 | 0 | 84/84 |
 
 Chunked prefill and recurrent decode, eager and SDPA attention, fp32 and bf16, left-padded batches and
 sampling all agree with the oracle.
@@ -294,7 +295,7 @@ All of these were detected at the first decode step except the drafts. Random dr
 decode walk later reaches their class, and a draft on the next step's chain is always caught
 (`tests/test_hybrid.py`).
 
-### 7.2 Engines (sessions 26a and 26b, RTX 3090; session 25's runs were invalidated by the probe bug of §5)
+### 7.2 Engines (RTX 3090; the first runs were invalidated by the probe bug of §5)
 | twin | vLLM 0.31 | SGLang 0.5.22 |
 |---|---|---|
 | Qwen3.5-0.8B, 24 layers, `--matrix hybrid` | 12 of 15 entries exact; **the 3 n-gram entries wrong** (§7.3) | **14 of 14 exact** (688,128 tokens) |
@@ -312,7 +313,13 @@ The exact entries, by engine:
 On the GPU box, the reference model was also exact on the full-depth twin: 0 mismatches, 276/276 states,
 residual drift 3.6·10⁻⁴, state and KV faults detected as in §7.1.
 
-### 7.3 vLLM 0.31: n-gram speculative decoding on hybrid models loses accepted tokens' state updates (vllm#62304)
+### 7.3 vLLM 0.27.1–0.31.0: n-gram speculative decoding on hybrid models loses accepted tokens' state updates (#40875)
+
+> **Update (2026-10-18):** this is vLLM issue #40875, reported in April as tool-call corruption with n-gram
+> speculation on Qwen3-class models; #56531 (merged 2026-10-05, after 0.31.0 was cut) found the same root
+> cause and fixed it, and vLLM 0.32.0 is exact on the workload below (0/192, with 33,848 of 62,092 draft tokens
+> accepted). Our report vllm#62304 is a duplicate. The release sweep (section 8.3) shows the bug in every
+> release from 0.27.1 (the first that loads the twin) to 0.31.0.
 | vLLM 0.31, Qwen3.5-0.8B twin, n-gram k = 4, decoy prompts | wrong requests of 192 |
 |---|---|
 | prefix caching on (default) | 8 |
@@ -327,11 +334,11 @@ kept. Several requests are wrong for a single token and then continue correctly,
 missing write does in the probe. Related, but different: #53912 (MTP + prefix caching on hybrids, rate tracking
 prefix-cache hits) and #61738 (≥ 7 speculative tokens).
 
-Isolation (session 27b, another host, the same 192 prompts):
+Isolation (another host, the same 192 prompts):
 
 | variant | wrong requests |
 |---|---|
-| repeat; repeat on another host (session 26a) | 8, 8 (the same 967 tokens, the same requests) |
+| repeat; repeat on another host | 8, 8 (the same 967 tokens, the same requests) |
 | `async_scheduling=False` | 8 (identical) |
 | `enforce_eager=True` | 8 (identical) |
 | `max_num_seqs=1` (one request at a time) | 8 (identical) |
@@ -343,3 +350,69 @@ It is deterministic and does not depend on batching, async scheduling, CUDA grap
 the verify kernel. Each failing request fails the same way alone. It needs drafts that are only partly
 accepted: then vLLM must take the state at the last accepted position, and that state lacks the last
 accepted token's update.
+
+## 8. The experiments behind the technical report (RTX 3090, 2026-10-18)
+Data: `docs/data/realdiff_*.csv`, `boundary_*.csv`, `readmap_*.csv`, `sweep.csv`; figures and commands: the
+technical report ([`REPORT.md`](REPORT.md)).
+
+### 8.1 Real models next to their probe twins (`tools/realdiff.py`)
+Nine settings per engine, each changing one thing from the default; 192 greedy requests of up to 256 tokens.
+The real models get real-text prompts (24 shipment logs, each shared by eight requests with tasks that copy
+from it: prefix-cache hits and partly accepted n-gram drafts); the twins get probe prompts (seed 13 for
+SGLang, the prompts of the runs that found sglang#44997; seed 12 with decoys for vLLM's speculative setting).
+"Logprob check": vLLM's `check_logprobs_close` (at the first differing token, each run's token must be in the
+other's top 5), against the default run. Every setting also ran without logprobs where it matters
+(speculative decoding): the probe results are the same.
+
+| Engine, real model | correct settings: outputs that differ from the default | logprob check failures | the setting with the bug: differ / logprob failures | probe twin: correct settings / the setting with the bug |
+|---|---|---|---|---|
+| SGLang 0.5.21, Qwen3-0.6B | 0–69 of 192 (CUDA graphs off and a rerun: 0) | 0 | NGRAM: 67 / 2 | 0 of 192 each / 8 |
+| vLLM 0.31, Qwen3-0.6B | 48–65 (rerun: 0) | 0 | none (n-gram is exact on the dense twin) | 0 / – |
+| vLLM 0.31, Qwen3.5-0.8B | 77–87 (rerun: 0) | 0 | n-gram: 144 / 32 | 0 / 8 |
+| HF transformers vs the engines' default | 74–78 | 0 | vs vLLM n-gram on Qwen3.5: 147 / 33 | |
+
+On the real Qwen3.5-0.8B, the n-gram run drops words the default run was certain of (request 14:
+`awaiting pickup |` becomes `awaiting |`), drops table delimiters and adds stray lines: fluent output that
+copies the shipment log wrongly. 26,613 of 54,443 draft tokens were accepted in that run.
+
+### 8.2 Faults injected into vLLM's paged KV cache (`tools/fault_boundary.py`)
+vLLM 0.31.0, Qwen3-0.6B twin (no scale check), FLASH_ATTN with prefix caching and CUDA graphs; 24 cached prompts
+of 642–3,999 tokens. Each trial corrupts one block (all its physical copies) of one cached request through the
+self-describing cache, reruns the request from the cache and compares with the oracle. An oracle replay
+(`tools/boundary_analyze.py --twin`) computes the step at which each corrupted (layer, position) is first read.
+
+| Fault | trials | read by the generation | detected | first wrong step = predicted step |
+|---|---|---|---|---|
+| block replaced by another request's / the same request's block | 12 / 12 | 12 / 12 | 12 / 12 | all |
+| block zeroed; block holds the layer below's values | 12 / 12 | all | all | all |
+| block stale in one layer only | 12 | 12 | 12 | all (a median 49.5 steps after other layers first read it) |
+| one slot replaced; one slot in one layer only | 12 / 12 | 12 / 9 | 12 / 9 | all |
+| KV head 0 replaced; keys negated; values negated | 12 / 6 / 6 | all | all | all |
+| a random cached block replaced | 24 | 15 | 15 | all |
+
+In all: 132 content faults, 120 read by the generation, all 120 detected at exactly the predicted step, and
+none of the 12 unread ones detected. The generation reads a median of 98% of a prompt's cached blocks within
+256 steps (43–100%). Magnitude-only faults on one read block (6 trials per size): K scaled by 1 + ε goes
+undetected up to ε = 1 and is detected from 3; V scaled, and K or V with noise of ε · rms added, go undetected up
+to 3 and are detected at 10; sign flips of a fraction ε of the entries go undetected up to 0.1 (K) and 0.03 (V),
+and are detected at 0.3 (V: 3 of 6 at 0.1). Softmax scale
+(eager mode, every attention layer, 48 requests per factor, twin with the scale check): factors 0.74 and below
+and 1.35 and above are flagged on every request and diagnosed as a scale fault; 0.77–1.30 pass (the design
+window is about 0.75–1.35).
+
+### 8.3 Release sweep
+One suite on every vLLM release from 0.18.1 to 0.32.0 (the last patch of each minor release) and SGLang 0.5.14, 0.5.16 and 0.5.18–0.5.22; RTX 3090; the twins compiled once with the current probec; vLLM's `replay` matrix (no backend arguments) and SGLang's `quick`/`default` entries; each release in its own venv. 213 entries; 24 could not run: 20 because the release cannot load the twin (Qwen3.5 before vLLM 0.27.1 and SGLang 0.5.18), two FlashInfer JIT builds that failed on the image (vLLM 0.19.1 and 0.21.0, FP8 KV cache), and a torch.compile assertion in vLLM 0.29.0 and 0.30.0 on the FP8 checkpoint (`auto_functionalized was not removed`).
+
+| Bug (entry) | releases with wrong requests (count of 192 unless noted) | releases exact on the same entry | could not run |
+|---|---|---|---|
+| vLLM #34577: NVFP4 Marlin scale underflow | 0.18.1 (192) | 0.19.1, 0.20.2, 0.21.0, 0.22.1, 0.23.0, 0.24.0, 0.25.1, 0.26.0, 0.27.1, 0.28.0, 0.29.0, 0.30.0, 0.31.0, 0.32.0 | - |
+| vLLM #44735: FP8 Marlin skips the transpose of square layers | 0.19.1 (192); 0.20.2 (192); 0.21.0 (192); 0.22.1 (192); 0.23.0 (192) | 0.18.1, 0.24.0, 0.25.1, 0.26.0, 0.27.1, 0.28.0, 0.31.0, 0.32.0 | 0.29.0 (crash), 0.30.0 (crash) |
+| vLLM #42642: MLA prefill merge stride (of 33) | 0.21.0 (9); 0.22.1 (9); 0.23.0 (9); 0.24.0 (9); 0.25.1 (9) | 0.18.1, 0.19.1, 0.20.2, 0.26.0, 0.27.1, 0.28.0, 0.29.0, 0.30.0, 0.31.0, 0.32.0 | - |
+| vLLM MLA prefix caching, fixed by #50613 (of 96) | 0.24.0 (6); 0.25.1 (6); 0.26.0 (6); 0.27.1 (6) | 0.18.1, 0.19.1, 0.20.2, 0.21.0, 0.22.1, 0.23.0, 0.28.0, 0.29.0, 0.30.0, 0.31.0, 0.32.0 | - |
+| vLLM #40875: n-gram speculation on hybrid models | 0.27.1 (8); 0.28.0 (8); 0.29.0 (8); 0.30.0 (8); 0.31.0 (8) | 0.32.0 | 0.18.1, 0.19.1, 0.20.2, 0.21.0, 0.22.1, 0.23.0, 0.24.0, 0.25.1, 0.26.0 |
+| sglang#44997: NGRAM + radix cache (length endings) | 0.5.20 (8); 0.5.21 (8) | 0.5.14, 0.5.16, 0.5.18, 0.5.19, 0.5.22 | - |
+| sglang#44998: NVFP4 Marlin scale underflow | 0.5.14 (192); 0.5.16 (192); 0.5.18 (192); 0.5.19 (192); 0.5.20 (192); 0.5.21 (192); 0.5.22 (192) | - | - |
+| sglang#44999: Marlin MoE (AWQ), two runs per release | 0.5.14 (13, 4); 0.5.16 (8, 15); 0.5.18 (1, 23); 0.5.19 (20, 13); 0.5.20 (21, 0); 0.5.21 (7, 4); 0.5.22 (4, 20) | - | - |
+| sglang#45000: FP8 Marlin + overlap, two runs per release | 0.5.18 (2, 2); 0.5.22 (0, 1) | 0.5.14, 0.5.16, 0.5.19, 0.5.20, 0.5.21 | - |
+
+Requests end by length, which hides sglang#44997 in 0.5.22 (#42720). The sweep ran the last patch of each minor release, so it did not run vLLM 0.19.0; the pull request that introduced #44735's bug (#38092) is already in 0.19.0. The FP8-block bug is intermittent, so a clean release there is not proof that it is absent. Blackwell-only bugs (vLLM #52796) cannot show on this GPU.

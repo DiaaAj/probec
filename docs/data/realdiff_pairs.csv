@@ -1,0 +1,266 @@
+model,a,b,requests,differ,differ_frac,median_first_diff,logprob_check_failed,logprob_na,a_flagged,b_flagged
+Qwen/Qwen3-0.6B,hf:HF/generate,sglang:flashinfer/chunk512,192,73,0.3802,55,0,0,0,0
+Qwen/Qwen3-0.6B,hf:HF/generate,sglang:flashinfer/default,192,74,0.3854,54,0,0,0,0
+Qwen/Qwen3-0.6B,hf:HF/generate,sglang:flashinfer/ngram,192,77,0.401,48,1,0,0,1
+Qwen/Qwen3-0.6B,hf:HF/generate,sglang:flashinfer/ngram (no logprobs),192,77,0.401,48,0,77,0,1
+Qwen/Qwen3-0.6B,hf:HF/generate,sglang:flashinfer/no_cuda_graph,192,74,0.3854,54,0,0,0,0
+Qwen/Qwen3-0.6B,hf:HF/generate,sglang:flashinfer/no_overlap,192,69,0.3594,53,0,0,0,0
+Qwen/Qwen3-0.6B,hf:HF/generate,sglang:flashinfer/no_radix,192,77,0.401,47,0,0,0,0
+Qwen/Qwen3-0.6B,hf:HF/generate,sglang:flashinfer/one_seq,192,74,0.3854,60,0,0,0,0
+Qwen/Qwen3-0.6B,hf:HF/generate,sglang:flashinfer/rerun,192,74,0.3854,54,0,0,0,0
+Qwen/Qwen3-0.6B,hf:HF/generate,sglang:triton/default,192,67,0.349,54,0,0,0,0
+Qwen/Qwen3-0.6B,hf:HF/generate,vllm:FLASHINFER/default,192,76,0.3958,53,0,0,0,0
+Qwen/Qwen3-0.6B,hf:HF/generate,vllm:FLASH_ATTN/chunk512,192,63,0.3281,47,0,0,0,0
+Qwen/Qwen3-0.6B,hf:HF/generate,vllm:FLASH_ATTN/default,192,75,0.3906,54,0,0,0,0
+Qwen/Qwen3-0.6B,hf:HF/generate,vllm:FLASH_ATTN/eager,192,69,0.3594,53,0,0,0,0
+Qwen/Qwen3-0.6B,hf:HF/generate,vllm:FLASH_ATTN/ngram,192,76,0.3958,58,0,0,0,0
+Qwen/Qwen3-0.6B,hf:HF/generate,vllm:FLASH_ATTN/ngram (no logprobs),192,76,0.3958,58,0,76,0,0
+Qwen/Qwen3-0.6B,hf:HF/generate,vllm:FLASH_ATTN/no_prefix_cache,192,69,0.3594,53,0,0,0,0
+Qwen/Qwen3-0.6B,hf:HF/generate,vllm:FLASH_ATTN/one_seq,192,67,0.349,53,0,0,0,0
+Qwen/Qwen3-0.6B,hf:HF/generate,vllm:FLASH_ATTN/rerun,192,75,0.3906,54,0,0,0,0
+Qwen/Qwen3-0.6B,hf:HF/generate,vllm:TRITON_ATTN/default,192,79,0.4115,54,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,sglang:flashinfer/default,192,64,0.3333,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,sglang:flashinfer/ngram,192,68,0.3542,56,1,0,0,1
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,sglang:flashinfer/ngram (no logprobs),192,68,0.3542,56,0,68,0,1
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,sglang:flashinfer/no_cuda_graph,192,64,0.3333,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,sglang:flashinfer/no_overlap,192,71,0.3698,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,sglang:flashinfer/no_radix,192,68,0.3542,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,sglang:flashinfer/one_seq,192,66,0.3438,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,sglang:flashinfer/rerun,192,64,0.3333,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,sglang:triton/default,192,68,0.3542,72,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,vllm:FLASHINFER/default,192,63,0.3281,58,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,vllm:FLASH_ATTN/chunk512,192,57,0.2969,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,vllm:FLASH_ATTN/default,192,67,0.349,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,vllm:FLASH_ATTN/eager,192,71,0.3698,59,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,vllm:FLASH_ATTN/ngram,192,68,0.3542,74,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,vllm:FLASH_ATTN/ngram (no logprobs),192,68,0.3542,74,0,68,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,vllm:FLASH_ATTN/no_prefix_cache,192,68,0.3542,58,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,vllm:FLASH_ATTN/one_seq,192,62,0.3229,58,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,vllm:FLASH_ATTN/rerun,192,67,0.349,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/chunk512,vllm:TRITON_ATTN/default,192,60,0.3125,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/default,sglang:flashinfer/ngram,192,67,0.349,58,2,0,0,1
+Qwen/Qwen3-0.6B,sglang:flashinfer/default,sglang:flashinfer/ngram (no logprobs),192,67,0.349,58,0,67,0,1
+Qwen/Qwen3-0.6B,sglang:flashinfer/default,sglang:flashinfer/no_cuda_graph,192,0,0.0,,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/default,sglang:flashinfer/no_overlap,192,46,0.2396,75,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/default,sglang:flashinfer/no_radix,192,63,0.3281,67,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/default,sglang:flashinfer/one_seq,192,69,0.3594,75,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/default,sglang:flashinfer/rerun,192,0,0.0,,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/default,sglang:triton/default,192,62,0.3229,45,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/default,vllm:FLASHINFER/default,192,70,0.3646,67,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/default,vllm:FLASH_ATTN/chunk512,192,59,0.3073,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/default,vllm:FLASH_ATTN/default,192,66,0.3438,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/default,vllm:FLASH_ATTN/eager,192,57,0.2969,74,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/default,vllm:FLASH_ATTN/ngram,192,66,0.3438,67,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/default,vllm:FLASH_ATTN/ngram (no logprobs),192,66,0.3438,67,0,66,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/default,vllm:FLASH_ATTN/no_prefix_cache,192,63,0.3281,53,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/default,vllm:FLASH_ATTN/one_seq,192,68,0.3542,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/default,vllm:FLASH_ATTN/rerun,192,66,0.3438,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/default,vllm:TRITON_ATTN/default,192,65,0.3385,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram,sglang:flashinfer/ngram (no logprobs),192,0,0.0,,0,0,1,1
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram,sglang:flashinfer/no_cuda_graph,192,67,0.349,58,2,0,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram,sglang:flashinfer/no_overlap,192,65,0.3385,55,2,0,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram,sglang:flashinfer/no_radix,192,68,0.3542,54,2,0,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram,sglang:flashinfer/one_seq,192,69,0.3594,48,2,0,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram,sglang:flashinfer/rerun,192,67,0.349,58,2,0,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram,sglang:triton/default,192,70,0.3646,47,1,0,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram,vllm:FLASHINFER/default,192,81,0.4219,57,0,0,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram,vllm:FLASH_ATTN/chunk512,192,66,0.3438,58,2,0,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram,vllm:FLASH_ATTN/default,192,75,0.3906,55,2,0,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram,vllm:FLASH_ATTN/eager,192,70,0.3646,58,2,0,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram,vllm:FLASH_ATTN/ngram,192,64,0.3333,54,2,0,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram,vllm:FLASH_ATTN/ngram (no logprobs),192,64,0.3333,54,0,64,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram,vllm:FLASH_ATTN/no_prefix_cache,192,73,0.3802,57,2,0,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram,vllm:FLASH_ATTN/one_seq,192,78,0.4062,54,1,0,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram,vllm:FLASH_ATTN/rerun,192,75,0.3906,55,2,0,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram,vllm:TRITON_ATTN/default,192,75,0.3906,50,2,0,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram (no logprobs),sglang:flashinfer/no_cuda_graph,192,67,0.349,58,0,67,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram (no logprobs),sglang:flashinfer/no_overlap,192,65,0.3385,55,0,65,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram (no logprobs),sglang:flashinfer/no_radix,192,68,0.3542,54,0,68,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram (no logprobs),sglang:flashinfer/one_seq,192,69,0.3594,48,0,69,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram (no logprobs),sglang:flashinfer/rerun,192,67,0.349,58,0,67,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram (no logprobs),sglang:triton/default,192,70,0.3646,47,0,70,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram (no logprobs),vllm:FLASHINFER/default,192,81,0.4219,57,0,81,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram (no logprobs),vllm:FLASH_ATTN/chunk512,192,66,0.3438,58,0,66,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram (no logprobs),vllm:FLASH_ATTN/default,192,75,0.3906,55,0,75,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram (no logprobs),vllm:FLASH_ATTN/eager,192,70,0.3646,58,0,70,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram (no logprobs),vllm:FLASH_ATTN/ngram,192,64,0.3333,54,0,64,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram (no logprobs),vllm:FLASH_ATTN/ngram (no logprobs),192,64,0.3333,54,0,64,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram (no logprobs),vllm:FLASH_ATTN/no_prefix_cache,192,73,0.3802,57,0,73,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram (no logprobs),vllm:FLASH_ATTN/one_seq,192,78,0.4062,54,0,78,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram (no logprobs),vllm:FLASH_ATTN/rerun,192,75,0.3906,55,0,75,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/ngram (no logprobs),vllm:TRITON_ATTN/default,192,75,0.3906,50,0,75,1,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_cuda_graph,sglang:flashinfer/no_overlap,192,46,0.2396,75,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_cuda_graph,sglang:flashinfer/no_radix,192,63,0.3281,67,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_cuda_graph,sglang:flashinfer/one_seq,192,69,0.3594,75,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_cuda_graph,sglang:flashinfer/rerun,192,0,0.0,,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_cuda_graph,sglang:triton/default,192,62,0.3229,45,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_cuda_graph,vllm:FLASHINFER/default,192,70,0.3646,67,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_cuda_graph,vllm:FLASH_ATTN/chunk512,192,59,0.3073,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_cuda_graph,vllm:FLASH_ATTN/default,192,66,0.3438,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_cuda_graph,vllm:FLASH_ATTN/eager,192,57,0.2969,74,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_cuda_graph,vllm:FLASH_ATTN/ngram,192,66,0.3438,67,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_cuda_graph,vllm:FLASH_ATTN/ngram (no logprobs),192,66,0.3438,67,0,66,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_cuda_graph,vllm:FLASH_ATTN/no_prefix_cache,192,63,0.3281,53,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_cuda_graph,vllm:FLASH_ATTN/one_seq,192,68,0.3542,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_cuda_graph,vllm:FLASH_ATTN/rerun,192,66,0.3438,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_cuda_graph,vllm:TRITON_ATTN/default,192,65,0.3385,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_overlap,sglang:flashinfer/no_radix,192,54,0.2812,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_overlap,sglang:flashinfer/one_seq,192,63,0.3281,72,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_overlap,sglang:flashinfer/rerun,192,46,0.2396,75,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_overlap,sglang:triton/default,192,61,0.3177,58,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_overlap,vllm:FLASHINFER/default,192,67,0.349,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_overlap,vllm:FLASH_ATTN/chunk512,192,67,0.349,52,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_overlap,vllm:FLASH_ATTN/default,192,67,0.349,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_overlap,vllm:FLASH_ATTN/eager,192,60,0.3125,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_overlap,vllm:FLASH_ATTN/ngram,192,58,0.3021,61,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_overlap,vllm:FLASH_ATTN/ngram (no logprobs),192,58,0.3021,61,0,58,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_overlap,vllm:FLASH_ATTN/no_prefix_cache,192,60,0.3125,56,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_overlap,vllm:FLASH_ATTN/one_seq,192,60,0.3125,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_overlap,vllm:FLASH_ATTN/rerun,192,67,0.349,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_overlap,vllm:TRITON_ATTN/default,192,69,0.3594,53,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_radix,sglang:flashinfer/one_seq,192,61,0.3177,52,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_radix,sglang:flashinfer/rerun,192,63,0.3281,67,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_radix,sglang:triton/default,192,63,0.3281,56,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_radix,vllm:FLASHINFER/default,192,67,0.349,67,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_radix,vllm:FLASH_ATTN/chunk512,192,58,0.3021,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_radix,vllm:FLASH_ATTN/default,192,65,0.3385,58,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_radix,vllm:FLASH_ATTN/eager,192,63,0.3281,67,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_radix,vllm:FLASH_ATTN/ngram,192,55,0.2865,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_radix,vllm:FLASH_ATTN/ngram (no logprobs),192,55,0.2865,60,0,55,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_radix,vllm:FLASH_ATTN/no_prefix_cache,192,60,0.3125,54,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_radix,vllm:FLASH_ATTN/one_seq,192,58,0.3021,48,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_radix,vllm:FLASH_ATTN/rerun,192,65,0.3385,58,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/no_radix,vllm:TRITON_ATTN/default,192,66,0.3438,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/one_seq,sglang:flashinfer/rerun,192,69,0.3594,75,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/one_seq,sglang:triton/default,192,70,0.3646,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/one_seq,vllm:FLASHINFER/default,192,74,0.3854,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/one_seq,vllm:FLASH_ATTN/chunk512,192,70,0.3646,58,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/one_seq,vllm:FLASH_ATTN/default,192,65,0.3385,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/one_seq,vllm:FLASH_ATTN/eager,192,73,0.3802,67,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/one_seq,vllm:FLASH_ATTN/ngram,192,68,0.3542,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/one_seq,vllm:FLASH_ATTN/ngram (no logprobs),192,68,0.3542,60,0,68,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/one_seq,vllm:FLASH_ATTN/no_prefix_cache,192,68,0.3542,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/one_seq,vllm:FLASH_ATTN/one_seq,192,58,0.3021,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/one_seq,vllm:FLASH_ATTN/rerun,192,65,0.3385,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/one_seq,vllm:TRITON_ATTN/default,192,70,0.3646,54,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/rerun,sglang:triton/default,192,62,0.3229,45,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/rerun,vllm:FLASHINFER/default,192,70,0.3646,67,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/rerun,vllm:FLASH_ATTN/chunk512,192,59,0.3073,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/rerun,vllm:FLASH_ATTN/default,192,66,0.3438,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/rerun,vllm:FLASH_ATTN/eager,192,57,0.2969,74,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/rerun,vllm:FLASH_ATTN/ngram,192,66,0.3438,67,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/rerun,vllm:FLASH_ATTN/ngram (no logprobs),192,66,0.3438,67,0,66,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/rerun,vllm:FLASH_ATTN/no_prefix_cache,192,63,0.3281,53,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/rerun,vllm:FLASH_ATTN/one_seq,192,68,0.3542,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/rerun,vllm:FLASH_ATTN/rerun,192,66,0.3438,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:flashinfer/rerun,vllm:TRITON_ATTN/default,192,65,0.3385,57,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:triton/default,vllm:FLASHINFER/default,192,63,0.3281,60,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:triton/default,vllm:FLASH_ATTN/chunk512,192,67,0.349,55,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:triton/default,vllm:FLASH_ATTN/default,192,63,0.3281,54,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:triton/default,vllm:FLASH_ATTN/eager,192,62,0.3229,49,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:triton/default,vllm:FLASH_ATTN/ngram,192,63,0.3281,54,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:triton/default,vllm:FLASH_ATTN/ngram (no logprobs),192,63,0.3281,54,0,63,0,0
+Qwen/Qwen3-0.6B,sglang:triton/default,vllm:FLASH_ATTN/no_prefix_cache,192,57,0.2969,39,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:triton/default,vllm:FLASH_ATTN/one_seq,192,63,0.3281,44,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:triton/default,vllm:FLASH_ATTN/rerun,192,63,0.3281,54,0,0,0,0
+Qwen/Qwen3-0.6B,sglang:triton/default,vllm:TRITON_ATTN/default,192,67,0.349,49,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASHINFER/default,vllm:FLASH_ATTN/chunk512,192,61,0.3177,60,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASHINFER/default,vllm:FLASH_ATTN/default,192,59,0.3073,55,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASHINFER/default,vllm:FLASH_ATTN/eager,192,70,0.3646,59,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASHINFER/default,vllm:FLASH_ATTN/ngram,192,60,0.3125,69,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASHINFER/default,vllm:FLASH_ATTN/ngram (no logprobs),192,60,0.3125,69,0,60,0,0
+Qwen/Qwen3-0.6B,vllm:FLASHINFER/default,vllm:FLASH_ATTN/no_prefix_cache,192,55,0.2865,50,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASHINFER/default,vllm:FLASH_ATTN/one_seq,192,60,0.3125,31,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASHINFER/default,vllm:FLASH_ATTN/rerun,192,59,0.3073,55,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASHINFER/default,vllm:TRITON_ATTN/default,192,61,0.3177,69,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/chunk512,vllm:FLASH_ATTN/default,192,61,0.3177,55,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/chunk512,vllm:FLASH_ATTN/eager,192,65,0.3385,59,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/chunk512,vllm:FLASH_ATTN/ngram,192,56,0.2917,57,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/chunk512,vllm:FLASH_ATTN/ngram (no logprobs),192,56,0.2917,57,0,56,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/chunk512,vllm:FLASH_ATTN/no_prefix_cache,192,57,0.2969,57,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/chunk512,vllm:FLASH_ATTN/one_seq,192,60,0.3125,48,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/chunk512,vllm:FLASH_ATTN/rerun,192,61,0.3177,55,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/chunk512,vllm:TRITON_ATTN/default,192,54,0.2812,67,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/default,vllm:FLASH_ATTN/eager,192,65,0.3385,55,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/default,vllm:FLASH_ATTN/ngram,192,50,0.2604,75,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/default,vllm:FLASH_ATTN/ngram (no logprobs),192,50,0.2604,75,0,50,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/default,vllm:FLASH_ATTN/no_prefix_cache,192,48,0.25,57,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/default,vllm:FLASH_ATTN/one_seq,192,58,0.3021,52,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/default,vllm:FLASH_ATTN/rerun,192,0,0.0,,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/default,vllm:TRITON_ATTN/default,192,62,0.3229,57,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/eager,vllm:FLASH_ATTN/ngram,192,63,0.3281,58,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/eager,vllm:FLASH_ATTN/ngram (no logprobs),192,63,0.3281,58,0,63,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/eager,vllm:FLASH_ATTN/no_prefix_cache,192,61,0.3177,53,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/eager,vllm:FLASH_ATTN/one_seq,192,64,0.3333,50,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/eager,vllm:FLASH_ATTN/rerun,192,65,0.3385,55,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/eager,vllm:TRITON_ATTN/default,192,68,0.3542,72,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/ngram,vllm:FLASH_ATTN/ngram (no logprobs),192,0,0.0,,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/ngram,vllm:FLASH_ATTN/no_prefix_cache,192,50,0.2604,72,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/ngram,vllm:FLASH_ATTN/one_seq,192,61,0.3177,60,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/ngram,vllm:FLASH_ATTN/rerun,192,50,0.2604,75,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/ngram,vllm:TRITON_ATTN/default,192,66,0.3438,67,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/ngram (no logprobs),vllm:FLASH_ATTN/no_prefix_cache,192,50,0.2604,72,0,50,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/ngram (no logprobs),vllm:FLASH_ATTN/one_seq,192,61,0.3177,60,0,61,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/ngram (no logprobs),vllm:FLASH_ATTN/rerun,192,50,0.2604,75,0,50,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/ngram (no logprobs),vllm:TRITON_ATTN/default,192,66,0.3438,67,0,66,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/no_prefix_cache,vllm:FLASH_ATTN/one_seq,192,56,0.2917,52,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/no_prefix_cache,vllm:FLASH_ATTN/rerun,192,48,0.25,57,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/no_prefix_cache,vllm:TRITON_ATTN/default,192,62,0.3229,57,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/one_seq,vllm:FLASH_ATTN/rerun,192,58,0.3021,52,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/one_seq,vllm:TRITON_ATTN/default,192,66,0.3438,45,0,0,0,0
+Qwen/Qwen3-0.6B,vllm:FLASH_ATTN/rerun,vllm:TRITON_ATTN/default,192,62,0.3229,57,0,0,0,0
+Qwen/Qwen3.5-0.8B,hf:HF/generate,vllm:FLASHINFER/default,192,88,0.4583,39,0,0,0,0
+Qwen/Qwen3.5-0.8B,hf:HF/generate,vllm:FLASH_ATTN/chunk512,192,82,0.4271,37,0,0,0,0
+Qwen/Qwen3.5-0.8B,hf:HF/generate,vllm:FLASH_ATTN/default,192,78,0.4062,51,0,0,0,0
+Qwen/Qwen3.5-0.8B,hf:HF/generate,vllm:FLASH_ATTN/eager,192,85,0.4427,37,0,0,0,0
+Qwen/Qwen3.5-0.8B,hf:HF/generate,vllm:FLASH_ATTN/ngram,192,147,0.7656,27,33,0,0,1
+Qwen/Qwen3.5-0.8B,hf:HF/generate,vllm:FLASH_ATTN/ngram (no logprobs),192,147,0.7656,27,0,147,0,1
+Qwen/Qwen3.5-0.8B,hf:HF/generate,vllm:FLASH_ATTN/no_prefix_cache,192,83,0.4323,45,0,0,0,0
+Qwen/Qwen3.5-0.8B,hf:HF/generate,vllm:FLASH_ATTN/one_seq,192,80,0.4167,47,0,0,0,0
+Qwen/Qwen3.5-0.8B,hf:HF/generate,vllm:FLASH_ATTN/rerun,192,78,0.4062,51,0,0,0,0
+Qwen/Qwen3.5-0.8B,hf:HF/generate,vllm:TRITON_ATTN/default,192,82,0.4271,45,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASHINFER/default,vllm:FLASH_ATTN/chunk512,192,76,0.3958,46,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASHINFER/default,vllm:FLASH_ATTN/default,192,87,0.4531,45,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASHINFER/default,vllm:FLASH_ATTN/eager,192,76,0.3958,46,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASHINFER/default,vllm:FLASH_ATTN/ngram,192,143,0.7448,27,32,0,0,1
+Qwen/Qwen3.5-0.8B,vllm:FLASHINFER/default,vllm:FLASH_ATTN/ngram (no logprobs),192,143,0.7448,27,0,143,0,1
+Qwen/Qwen3.5-0.8B,vllm:FLASHINFER/default,vllm:FLASH_ATTN/no_prefix_cache,192,78,0.4062,51,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASHINFER/default,vllm:FLASH_ATTN/one_seq,192,71,0.3698,44,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASHINFER/default,vllm:FLASH_ATTN/rerun,192,87,0.4531,45,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASHINFER/default,vllm:TRITON_ATTN/default,192,80,0.4167,50,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/chunk512,vllm:FLASH_ATTN/default,192,79,0.4115,51,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/chunk512,vllm:FLASH_ATTN/eager,192,72,0.375,50,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/chunk512,vllm:FLASH_ATTN/ngram,192,144,0.75,26,33,0,0,1
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/chunk512,vllm:FLASH_ATTN/ngram (no logprobs),192,144,0.75,26,0,144,0,1
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/chunk512,vllm:FLASH_ATTN/no_prefix_cache,192,74,0.3854,44,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/chunk512,vllm:FLASH_ATTN/one_seq,192,71,0.3698,53,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/chunk512,vllm:FLASH_ATTN/rerun,192,79,0.4115,51,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/chunk512,vllm:TRITON_ATTN/default,192,75,0.3906,52,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/default,vllm:FLASH_ATTN/eager,192,84,0.4375,43,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/default,vllm:FLASH_ATTN/ngram,192,144,0.75,27,32,0,0,1
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/default,vllm:FLASH_ATTN/ngram (no logprobs),192,144,0.75,27,0,144,0,1
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/default,vllm:FLASH_ATTN/no_prefix_cache,192,82,0.4271,42,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/default,vllm:FLASH_ATTN/one_seq,192,77,0.401,47,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/default,vllm:FLASH_ATTN/rerun,192,0,0.0,,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/default,vllm:TRITON_ATTN/default,192,80,0.4167,52,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/eager,vllm:FLASH_ATTN/ngram,192,148,0.7708,26,32,0,0,1
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/eager,vllm:FLASH_ATTN/ngram (no logprobs),192,148,0.7708,26,0,148,0,1
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/eager,vllm:FLASH_ATTN/no_prefix_cache,192,80,0.4167,47,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/eager,vllm:FLASH_ATTN/one_seq,192,79,0.4115,43,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/eager,vllm:FLASH_ATTN/rerun,192,84,0.4375,43,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/eager,vllm:TRITON_ATTN/default,192,77,0.401,43,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/ngram,vllm:FLASH_ATTN/ngram (no logprobs),192,0,0.0,,0,0,1,1
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/ngram,vllm:FLASH_ATTN/no_prefix_cache,192,142,0.7396,27,34,0,1,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/ngram,vllm:FLASH_ATTN/one_seq,192,141,0.7344,27,32,0,1,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/ngram,vllm:FLASH_ATTN/rerun,192,144,0.75,27,32,0,1,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/ngram,vllm:TRITON_ATTN/default,192,151,0.7865,32,35,0,1,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/ngram (no logprobs),vllm:FLASH_ATTN/no_prefix_cache,192,142,0.7396,27,0,142,1,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/ngram (no logprobs),vllm:FLASH_ATTN/one_seq,192,141,0.7344,27,0,141,1,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/ngram (no logprobs),vllm:FLASH_ATTN/rerun,192,144,0.75,27,0,144,1,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/ngram (no logprobs),vllm:TRITON_ATTN/default,192,151,0.7865,32,0,151,1,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/no_prefix_cache,vllm:FLASH_ATTN/one_seq,192,79,0.4115,46,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/no_prefix_cache,vllm:FLASH_ATTN/rerun,192,82,0.4271,42,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/no_prefix_cache,vllm:TRITON_ATTN/default,192,81,0.4219,51,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/one_seq,vllm:FLASH_ATTN/rerun,192,77,0.401,47,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/one_seq,vllm:TRITON_ATTN/default,192,68,0.3542,47,0,0,0,0
+Qwen/Qwen3.5-0.8B,vllm:FLASH_ATTN/rerun,vllm:TRITON_ATTN/default,192,80,0.4167,52,0,0,0,0

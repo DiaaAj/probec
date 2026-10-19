@@ -226,7 +226,7 @@ def run_engine(a):
     if not getattr(a, "in_process", False) and not os.environ.get(ISOLATED_ENV):
         # SGLang kills its whole process tree when a scheduler fails (e.g. a backend this GPU cannot
         # compile), which in one process would end the run at the first such entry; and an engine torn
-        # down in-process can leave GPU memory allocated, so the next one would not fit (vLLM, session 19)
+        # down in-process can leave GPU memory allocated, so the next one would not fit (seen with vLLM)
         names = [e["name"] for e in plan if not a.only or e["name"] == a.only]
         recs = run_isolated(names, lambda name, path: _entry_cmd(a, name, path), a.out,
                             getattr(a, "entry_timeout", 1800), extra={"engine": a.engine})

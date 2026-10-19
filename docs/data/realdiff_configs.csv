@@ -1,0 +1,63 @@
+model,side,engine,engine_version,config,logprobs,requests,reference,differ_vs_reference,differ_frac_vs_reference,logprob_check_failed_vs_reference,probe_flags_config,spec_decode,wrong_requests,wrong_tokens
+Qwen/Qwen3-0.6B,real,hf,5.17.0,HF/generate,5,192,,,,,0,,,
+Qwen/Qwen3-0.6B,real,sglang,0.5.21,flashinfer/chunk512,5,192,flashinfer/default,64,0.3333,0,0,,,
+Qwen/Qwen3-0.6B,real,sglang,0.5.21,flashinfer/default,5,192,,,,,0,,,
+Qwen/Qwen3-0.6B,real,sglang,0.5.21,flashinfer/ngram,5,192,flashinfer/default,67,0.349,2,1,"{""spec_accept_rate"": 0.2907, ""spec_accept_length"": 1.8748, ""spec_num_correct_drafts"": 20289, ""spec_num_proposed_drafts"": 70335, ""spec_verify_ct"": 23445, ""tokens_per_verify_step"": 1.868}",,
+Qwen/Qwen3-0.6B,real0,sglang,0.5.21,flashinfer/ngram,0,192,,,,,1,"{""spec_accept_rate"": 0.2907, ""spec_accept_length"": 1.8748, ""spec_num_correct_drafts"": 20289, ""spec_num_proposed_drafts"": 70335, ""spec_verify_ct"": 23445, ""tokens_per_verify_step"": 1.868}",,
+Qwen/Qwen3-0.6B,real,sglang,0.5.21,flashinfer/no_cuda_graph,5,192,flashinfer/default,0,0.0,0,0,,,
+Qwen/Qwen3-0.6B,real,sglang,0.5.21,flashinfer/no_overlap,5,192,flashinfer/default,46,0.2396,0,0,,,
+Qwen/Qwen3-0.6B,real,sglang,0.5.21,flashinfer/no_radix,5,192,flashinfer/default,63,0.3281,0,0,,,
+Qwen/Qwen3-0.6B,real,sglang,0.5.21,flashinfer/one_seq,5,192,flashinfer/default,69,0.3594,0,0,,,
+Qwen/Qwen3-0.6B,real,sglang,0.5.21,flashinfer/rerun,5,192,flashinfer/default,0,0.0,0,0,,,
+Qwen/Qwen3-0.6B,real,sglang,0.5.21,triton/default,5,192,flashinfer/default,62,0.3229,0,0,,,
+Qwen/Qwen3-0.6B,real,vllm,0.31.0,FLASHINFER/default,5,192,FLASH_ATTN/default,59,0.3073,0,0,,,
+Qwen/Qwen3-0.6B,real,vllm,0.31.0,FLASH_ATTN/chunk512,5,192,FLASH_ATTN/default,61,0.3177,0,0,,,
+Qwen/Qwen3-0.6B,real,vllm,0.31.0,FLASH_ATTN/default,5,192,,,,,0,,,
+Qwen/Qwen3-0.6B,real,vllm,0.31.0,FLASH_ATTN/eager,5,192,FLASH_ATTN/default,65,0.3385,0,0,,,
+Qwen/Qwen3-0.6B,real,vllm,0.31.0,FLASH_ATTN/ngram,5,192,FLASH_ATTN/default,50,0.2604,0,0,"{""num_drafts"": 11809, ""num_draft_tokens"": 47236, ""num_accepted_tokens"": 26674, ""num_accepted_tokens_per_pos"": 26674}",,
+Qwen/Qwen3-0.6B,real0,vllm,0.31.0,FLASH_ATTN/ngram,0,192,,,,,0,"{""num_drafts"": 11809, ""num_draft_tokens"": 47236, ""num_accepted_tokens"": 26674, ""num_accepted_tokens_per_pos"": 26674}",,
+Qwen/Qwen3-0.6B,real,vllm,0.31.0,FLASH_ATTN/no_prefix_cache,5,192,FLASH_ATTN/default,48,0.25,0,0,,,
+Qwen/Qwen3-0.6B,real,vllm,0.31.0,FLASH_ATTN/one_seq,5,192,FLASH_ATTN/default,58,0.3021,0,0,,,
+Qwen/Qwen3-0.6B,real,vllm,0.31.0,FLASH_ATTN/rerun,5,192,FLASH_ATTN/default,0,0.0,0,0,,,
+Qwen/Qwen3-0.6B,real,vllm,0.31.0,TRITON_ATTN/default,5,192,FLASH_ATTN/default,62,0.3229,0,0,,,
+Qwen/Qwen3.5-0.8B,real,hf,5.17.0,HF/generate,5,192,,,,,0,,,
+Qwen/Qwen3.5-0.8B,real,vllm,0.31.0,FLASHINFER/default,5,192,FLASH_ATTN/default,87,0.4531,0,0,,,
+Qwen/Qwen3.5-0.8B,real,vllm,0.31.0,FLASH_ATTN/chunk512,5,192,FLASH_ATTN/default,79,0.4115,0,0,,,
+Qwen/Qwen3.5-0.8B,real,vllm,0.31.0,FLASH_ATTN/default,5,192,,,,,0,,,
+Qwen/Qwen3.5-0.8B,real,vllm,0.31.0,FLASH_ATTN/eager,5,192,FLASH_ATTN/default,84,0.4375,0,0,,,
+Qwen/Qwen3.5-0.8B,real,vllm,0.31.0,FLASH_ATTN/ngram,5,192,FLASH_ATTN/default,144,0.75,32,1,"{""num_drafts"": 13633, ""num_draft_tokens"": 54443, ""num_accepted_tokens"": 26613, ""num_accepted_tokens_per_pos"": 26613}",,
+Qwen/Qwen3.5-0.8B,real0,vllm,0.31.0,FLASH_ATTN/ngram,0,192,,,,,1,"{""num_drafts"": 13633, ""num_draft_tokens"": 54443, ""num_accepted_tokens"": 26613, ""num_accepted_tokens_per_pos"": 26613}",,
+Qwen/Qwen3.5-0.8B,real,vllm,0.31.0,FLASH_ATTN/no_prefix_cache,5,192,FLASH_ATTN/default,82,0.4271,0,0,,,
+Qwen/Qwen3.5-0.8B,real,vllm,0.31.0,FLASH_ATTN/one_seq,5,192,FLASH_ATTN/default,77,0.401,0,0,,,
+Qwen/Qwen3.5-0.8B,real,vllm,0.31.0,FLASH_ATTN/rerun,5,192,FLASH_ATTN/default,0,0.0,0,0,,,
+Qwen/Qwen3.5-0.8B,real,vllm,0.31.0,TRITON_ATTN/default,5,192,FLASH_ATTN/default,80,0.4167,0,0,,,
+dense,probe,vllm,0.31.0,FLASHINFER/default,5,192,,,,,0,,0,0
+dense,probe,vllm,0.31.0,FLASH_ATTN/chunk512,5,192,,,,,0,,0,0
+dense,probe,vllm,0.31.0,FLASH_ATTN/default,5,192,,,,,0,,0,0
+dense,probe,vllm,0.31.0,FLASH_ATTN/eager,5,192,,,,,0,,0,0
+dense,probe,vllm,0.31.0,FLASH_ATTN/ngram,5,192,,,,,0,"{""num_drafts"": 5191, ""num_draft_tokens"": 20764, ""num_accepted_tokens"": 14390, ""num_accepted_tokens_per_pos"": 14390}",0,0
+dense,probe0,vllm,0.31.0,FLASH_ATTN/ngram,0,192,,,,,0,"{""num_drafts"": 5191, ""num_draft_tokens"": 20764, ""num_accepted_tokens"": 14390, ""num_accepted_tokens_per_pos"": 14390}",0,0
+dense,probe,vllm,0.31.0,FLASH_ATTN/no_prefix_cache,5,192,,,,,0,,0,0
+dense,probe,vllm,0.31.0,FLASH_ATTN/one_seq,5,192,,,,,0,,0,0
+dense,probe,vllm,0.31.0,FLASH_ATTN/rerun,5,192,,,,,0,,0,0
+dense,probe,vllm,0.31.0,TRITON_ATTN/default,5,192,,,,,0,,0,0
+dense,probe,sglang,0.5.21,flashinfer/chunk512,5,192,,,,,0,,0,0
+dense,probe,sglang,0.5.21,flashinfer/default,5,192,,,,,0,,0,0
+dense,probe,sglang,0.5.21,flashinfer/ngram,5,192,,,,,1,"{""spec_accept_rate"": 0.5801, ""spec_accept_length"": 2.7403, ""spec_num_correct_drafts"": 29921, ""spec_num_proposed_drafts"": 57705, ""spec_verify_ct"": 19235, ""tokens_per_verify_step"": 2.555}",8,1793
+dense,probe0,sglang,0.5.21,flashinfer/ngram,0,192,,,,,1,"{""spec_accept_rate"": 0.5801, ""spec_accept_length"": 2.7403, ""spec_num_correct_drafts"": 29921, ""spec_num_proposed_drafts"": 57705, ""spec_verify_ct"": 19235, ""tokens_per_verify_step"": 2.555}",8,1793
+dense,probe,sglang,0.5.21,flashinfer/no_cuda_graph,5,192,,,,,0,,0,0
+dense,probe,sglang,0.5.21,flashinfer/no_overlap,5,192,,,,,0,,0,0
+dense,probe,sglang,0.5.21,flashinfer/no_radix,5,192,,,,,0,,0,0
+dense,probe,sglang,0.5.21,flashinfer/one_seq,5,192,,,,,0,,0,0
+dense,probe,sglang,0.5.21,flashinfer/rerun,5,192,,,,,0,,0,0
+dense,probe,sglang,0.5.21,triton/default,5,192,,,,,0,,0,0
+h08,probe,vllm,0.31.0,FLASHINFER/default,5,192,,,,,0,,0,0
+h08,probe,vllm,0.31.0,FLASH_ATTN/chunk512,5,192,,,,,0,,0,0
+h08,probe,vllm,0.31.0,FLASH_ATTN/default,5,192,,,,,0,,0,0
+h08,probe,vllm,0.31.0,FLASH_ATTN/eager,5,192,,,,,0,,0,0
+h08,probe,vllm,0.31.0,FLASH_ATTN/ngram,5,192,,,,,1,"{""num_drafts"": 11557, ""num_draft_tokens"": 46228, ""num_accepted_tokens"": 31131, ""num_accepted_tokens_per_pos"": 31131}",8,967
+h08,probe0,vllm,0.31.0,FLASH_ATTN/ngram,0,192,,,,,1,"{""num_drafts"": 11557, ""num_draft_tokens"": 46228, ""num_accepted_tokens"": 31131, ""num_accepted_tokens_per_pos"": 31131}",8,967
+h08,probe,vllm,0.31.0,FLASH_ATTN/no_prefix_cache,5,192,,,,,0,,0,0
+h08,probe,vllm,0.31.0,FLASH_ATTN/one_seq,5,192,,,,,0,,0,0
+h08,probe,vllm,0.31.0,FLASH_ATTN/rerun,5,192,,,,,0,,0,0
+h08,probe,vllm,0.31.0,TRITON_ATTN/default,5,192,,,,,0,,0,0
