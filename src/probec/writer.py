@@ -8,9 +8,10 @@ from safetensors.torch import save_file
 
 
 class Writer:
-    def __init__(self, out_dir, shard_bytes=2 << 30):
+    def __init__(self, out_dir, shard_bytes=2 << 30, always_index=False):
         self.out = out_dir
         self.shard_bytes = shard_bytes
+        self.always_index = always_index    # write model.safetensors.index.json even for one shard (DeepInfer)
         self.cur, self.cur_bytes = {}, 0
         self.files, self.index = [], {}
         self.inexact = []
@@ -54,7 +55,7 @@ class Writer:
 
     def close(self):
         self.flush()
-        if len(self.files) == 1:
+        if len(self.files) == 1 and not self.always_index:
             os.replace(os.path.join(self.out, self.files[0]), os.path.join(self.out, "model.safetensors"))
             return
         total = len(self.files)

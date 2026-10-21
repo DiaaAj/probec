@@ -13,3 +13,4 @@ part of the package.
 | `repro_sglang_ngram.py`, `sgl_ngram_realmodel.py` | repro of sglang#44997: NGRAM vs no speculation, on a twin and on real Qwen3-0.6B weights |
 | `sgl_repeat.py` | repro of sglang#44999: one request, repeated, under Marlin MoE |
 | `marlin_determinism.py` | sglang#45000: SGLang's FP8 Marlin GEMM checked in isolation (sizes, repeats, streams) |
+| `repro_vllm_v41_tail_chunk.py` | DeepSeek-V4.1 twin on vLLM: wrong output when the last chunked-prefill chunk runs as a piecewise CUDA graph |
